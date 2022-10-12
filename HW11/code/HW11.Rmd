@@ -1,0 +1,316 @@
+---
+title: "HW11 - GAMs Coyotes and Wolves"
+author: "Jamie Ash"
+date: "11/09/2021"
+output: 
+  bookdown::html_document2:  
+    self-contained: yes
+    theme: paper #cerulean #cosmo #journal #readable
+    toc: true
+    smooth_scroll: true
+    toc_depth: 3
+    toc_float: true
+    number_sections: true
+    fig_caption: yes
+    code_folding: hide
+    # bibliography: ["geothermal.bib", "r.bib"]
+    # csl: apa-5th-edition.csl
+    # link-citations: yes
+---  
+
+<style type="text/css">  
+/* Note: CSS uses C-style commenting. */
+h1.title{font-size:22px; text-align:center;}
+h4.author{font-size:16px; text-align:center;}
+h4.date{font-size:16px; text-align:center;}
+body{ /* Normal  */ font-size: 13px}
+td {  /* Table   */ font-size: 12px}
+h1 { /* Header 1 */ font-size: 16px}
+h2 { /* Header 2 */ font-size: 14px}
+h3 { /* Header 3 */ font-size: 12px}
+.math{ font-size: 10pt;}
+.hi{ /* hanging indents */ 
+    padding-left:22px; 
+    text-indent:-22px;
+}
+.main-container {
+  max-width: 1000px;
+  margin-left: auto;
+  margin-right: auto;
+}
+blockquote {  
+    padding: 10px 20px;
+    margin: 0 0 20px;
+    font-size: 12px;
+    border-left: 5px solid #eee;
+}
+code.r{ /* code */ 
+       font-size: 12px;
+}
+pre{/*preformatted text*/ 
+    font-size: 12px;
+}
+p.caption {/* figure captions */ 
+    font-size: 1.0em;
+    font-style: italic; 
+} 
+.vscroll-plot {
+    width: 800px;
+    height: 400px;
+    overflow-y: scroll;
+    overflow-x: hidden;
+}
+body {
+text-align: justify}
+</style>
+
+```{r setup, include=FALSE, message = FALSE}
+library(bookdown)
+library(ggplot2)
+library(bookdown)
+library(ggplot2)
+library(car)
+library(effects)
+library(ggeffects)
+library(MASS)
+library(GGally)
+library(glmmTMB)
+library(ggResidpanel)
+library(emmeans)
+library(MuMIn)
+library(qpcR)
+library(gridExtra)
+library(grid)
+library(mgcv)
+library(sp)
+library(geoR)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r data}
+# reading data from given csv
+dogs <- read.csv(paste("..\\data\\", "wolf_coyote_hybrids.csv", sep = ""))
+colnames(dogs) <- c("ID", "pack", "location", "ancestry", "road1", "road2", 
+                     "road3", "deer", "moose", "east", "north")
+dogs$location <- as.factor(dogs$location)
+```
+
+This assignment uses data from the paper, Benson et al. 2012, looking at a hybrid zone between wolves and coyotes in Ontario. The authors sampled a number of wolves in these areas. The authors performed genetic analyses to assign to each individual % ancestry from coyotes, eastern wolves, and grey wolves. The results look like this...  
+
+The authors wanted to use this data to address several questions about the structure and causes of this hybrid zone:
+
+1) Does the variation in % coyote ancestry look like a simple cline, or is the spatial structure more complicated?  
+2) Is variation in % coyote ancestry well-predicted by whether the individuals are mostly inside the Algonquin Provincial Park (APP), where harvesting wolves or coyotes is prohibited?  
+3) How well can spatial variation in % ancestry be predicted by environmental conditions?  
+
+We can address these questions using GAMs. The dataset includes the following info:  
+
+  - coyote ancestry of each individual, logit-transformed for normality
+  - coordinates of the centroid of the home range of each individual (in east and north metric coordinates [units of meters])
+  - density of primary roads in the individual’s home range
+  - density of secondary roads
+  - density of tertiary roads
+  - an index of deer abundance in the home range
+  - moose density in the home range
+  - study area (inside APP or outside APP)
+
+# GAM: 2d Smoother {.tabset}
+To get at question 1, fit a GAM where % ancestry is the response and the predictor is a 2D smoother that uses the east and north coordinates. Plot the fitted smooth in a way that is interpretable to you. To what extent does spatial variation in % ancestry look like a smooth incline vs. a more complex pattern? Use gam.check to do some diagnostics. How do they look?  
+
+**Answer:** First I fit a GAM with only the north east coordinates as the predictors, in a 2D smoother. The model summary is shown in the first tab. Then I plotted the effect as a heatmap in the second tab. Lastly I used gam.check to run some diagnostics on the model shown in the third tab. While I found the fit to be significant, the spacial structure is more complex than a simple incline of percent coyote ancestry going to/from the APP zone. This means that there are likely other parameters that effect the distribution of cayotes that is not included in the model. Diagnostics: The two plots on the left show how normally distributed deviance residuals are, and the the plots on the left show the homoscedastisity of the variance. The quantile quantile plot and histogram of residuals looks good, but there is some clumping in the fitted values. 
+
+## Model Summary
+```{r, message = FALSE, cache = TRUE}
+#head(dogs)
+#hist(dogs$ancestry, breaks = 100)
+gm2D <- gam(ancestry ~ s(north, east, k = 20), data= dogs, family = gaussian)
+summary(gm2D)
+```
+
+## Plotting Incline
+```{r}
+plot(gm2D, select = 1, scheme = 2, lwd = 2)
+```
+
+## Diagnostics
+```{r}
+par(mfrow = c(2,2))
+gam.check(gm2D)
+``` 
+
+# Euclidean Distance from APP {.tabset}
+To get at question 2, we need a new variable that measures distance from APP. Let’s say the center of APP is at the coordinates 1440000 east, 12160000 north. Make a new column where you calculate the euclidean distance between each individual and the center of APP. Now make a GAM where % ancestry is a smooth function of distance from APP. Do you think this model supports the idea that the relative contribution of coyotes vs. wolves is primarily affected by this park? How does the % deviance explained compare between this model and the model where you fit a 2D smoother to the data? How does estimated degrees of freedom and AICc compare between the two models? How do you interpret these results?
+
+**Answer:** Yes this model supports the hypothesis that the park affects the relative contribution of coyotes vs wolves. The fit is both significant and the plotted effect show a clear increase in coyote percent ancestry as the distance from the park increases. It does not answer weather the distance from the park is the primary affect, as we have not tested any other predictors up until this point. The model with distance from the parks center explains 43.4% of the deviance, while the model with the 2D smoother explains 54.8% of the deviance. The model with a one dimensional distance smoother has about half the degrees of freedom than the model with a two dimensional smoother. The 1D smoother model has a slightly higher AIC score, but is overall not that different $\Delta AIC = 2.5$. The two models are testing a very similar hypothesis. That is, how percent ancestry is spatialy distributed. While the 1D distance model is technically worse, the results are easily interpreted as a simple line plot (shown in the second tab), and it addresses a more specific question, that is... how does the distance from the park effect percent coyote ancestry. As the distance increases, so does percent coyote ancestry. While hunting and trapping is allowed outside of the APP area, it is also more urbanized and it's believed that coyotes are better adapted survival in urban environments than wolves are.     
+
+## Model Summary and AIC
+```{r, message = FALSE, cache = TRUE}
+#euclidean distance from two points
+distance <- function(a, b) sqrt(sum((a - b)^2))
+
+# finding the euclidean distance between the east west coordinates
+center <- c(1440000,  12160000)
+spots <- cbind(dogs$east, dogs$north)
+for (i in 1:nrow(dogs)) dogs$dist[i] <- distance(spots[i,], center)
+gm1D <- gam(ancestry ~ s(dist), data= dogs, family = gaussian)
+
+summary(gm1D)
+MuMIn::AICc(gm1D, gm2D)
+```
+
+## Euclidean Distance Effects
+```{r}
+plot(gm1D, select = 1, scheme = 2, lwd = 2)
+title("Effect of Distance from APP center")
+```
+
+## Diagnostocs
+```{r}
+par(mfrow = c(2,2))
+gam.check(gm1D)
+```
+
+# Other predictors {.tabset}
+Question 3 can be addressed by using the environmental predictors in a model. Coyotes are more tolerant of disturbed/human habitats, so predictors like road density (a proxy for human impact) might explain % ancestry. Deer are eaten by both coyotes and wolves, while moose are taken primarily by wolves. Make a GAM where % coyote ancestry is the response, and the predictors are the three road variables, plus deer, moose, and StudyArea. Use a smoother for each predictor (except StudyArea), to see whether it looks like the effect is linear or nonlinear. You may want to transform SecondaryRds, because it has a very skewed distribution. Which of the predictors explain significant variation? Plot the fitted effects, and interpret them in light of what I’ve already discussed about coyotes and wolves.
+
+**Answer:** While the effect of secondary roads (linear^2) and tertiary roads (polynomial) has a positive effect on percent coyote ancestry, primary roads (linear) has a negative effect. Deer density (linear) seems to have little effect, while moose (polynomial) have an overall negative effect on coyote ancestry. Moose density (p = 0.00659), secondary roads (p = 5.02e-05), and tertiary roads (p = 0.06) have significant effects on coyote ancestry. As secondary and tertiary road density increases the percent coyote increases. These road systems (excluding primary roads) are a proxy for the effect of hunting and trapping. It appears that wolves are affected by hunting and trapping to a greater degree than coyotes. As moose density increases coyote ancestry decreases. Wolves eat moose, and coyote don't. The abundance of the wolves prey does affect the wolves prevalence.
+
+## Model Summary
+```{r, message = FALSE, cache = TRUE, fig.show="hold", out.width= "50%"}
+# transform road2
+gm_full = gam(ancestry ~ s(deer) + s(moose) + s(road1) + s(sqrt(road2)) + s(road3) + 
+                location, data = dogs, family = gaussian)
+
+summary(gm_full)
+```
+
+## Plotting the effect
+```{r,  message = FALSE, cache = TRUE, fig.show="hold", out.width= "50%"}
+par(mar = c(4, 4, .1, .1))
+plot(gm_full, select = 1, residuals = T, shade.col = 'orange', shade = T, col = 'black')
+plot(gm_full, select = 2, residuals = T, shade.col = 'orange', shade = T, col = 'black')
+plot(gm_full, select = 3, residuals = T, shade.col = 'orange', shade = T, col = 'black')
+plot(gm_full, select = 4, residuals = T, shade.col = 'orange', shade = T, col = 'black')
+plot(gm_full, select = 5, residuals = T, shade.col = 'orange', shade = T, col = 'black')
+# I'd like to plot as colored points
+plot(NULL ,xaxt='n',yaxt='n',bty='n',ylab='',xlab='', xlim=0:1, ylim=0:1)
+legend(x = 0, y = 1, 
+       legend = c("fitted effect", "conf interval"), 
+       lty = c(1, 1), col = c("black", "orange"))
+
+#plot(dogs$east, dogs$north, col = (gm_full$fitted.values - min(gm_full$fitted.values)))
+```
+
+# Interaction Tertiary Roads {.tabset}  
+The authors hypothesized that the effect of tertiary roads (smaller country roads) might differ if the animals are inside or outside of APP, because those roads are the most important for hunting/trapping access, but the animals are protected inside of APP. Amend the model you just made to include an interaction between the smoother for tertiary roads and StudyArea. Does it look like the interaction is important? How does this model compare based on AICc? What do you think the interaction means? Consider that wolves and coyotes may be differentially susceptible to human effects.
+
+**Answer:** Yes it does appear that the interaction is important. I ran the model two ways. One were I specified the study area so that the model output the effect of both tertiary roads inside (p = 0.059) and outside (p = 0.004) of the APP area, and another where I subset tertiary roads inside the APP area and tested it against all tertiary roads (both methods shown in lecture 18 pdf). The second model outputs an effect that captures the difference between tertiary roads inside and outside of the APP area (p = 0.0168) (bottom right figure, second tab). The plots in the right column (second tab) show the affect of tertiary roads outside of the study region, and it's reassuring that they are similar. The top right figure shows the effect of tertiary roads inside the APP region. Compared to the model without interaction (AIC = 368.94), this model seems to perform better (AIC = 363.037). This model shows the effect of hunting restrictions within the APP are, because tertiary roads are a proxy for hunting. Within the study region, tertiary roads do not have a positive or negative effect on coyote ancestry, but outside of the stud region there is a clear positive effect on coyote ancestry. 
+
+## Model Summary and AICc
+```{r, message = FALSE, fig.show="hold", out.width= "50%"}
+# hist(sqrt(dogs$road2))
+# How APP differs the overall relationship fit by the first smoother.
+gm_both <- gam(ancestry ~ s(deer) + s(moose) + s(road1) + s(sqrt(road2)) + location + s(road3, by = location), 
+              data   = dogs,
+              family = gaussian)
+
+ind     <- as.numeric(dogs$location == "APP")
+gm_in <- gam(ancestry ~ s(deer) + s(moose) + s(road1) + s(sqrt(road2)) + s(road3) + location + s(road3, by = ind), 
+              data = dogs,
+              family = gaussian)
+
+summary(gm_in)
+summary(gm_both)
+
+# showing they basically the same model
+MuMIn::AICc(gm_in, gm_both, gm_full)
+```
+
+## Plotted Model Effects
+```{r, message = FALSE, fig.show="hold", out.width= "50%"}
+par(mar = c(4, 4, 1, 1))
+plot(gm_both, 
+     select = 6, 
+     residuals = F,
+     shade = F, 
+     col = 'black',
+     ylim = c(-7, 10))
+plot(gm_both, 
+     select = 5, 
+     residuals = F, 
+     shade = F,
+     col = 'black',
+     ylim = c(-35, 15))
+plot(gm_in,  
+     select = 5, 
+     residuals = F,
+     shade = F,
+     col = 'black',
+     ylim = c(-7, 10))
+plot(gm_in,  
+     select = 6, 
+     residuals = F,
+     shade = F,
+     col = 'black')
+     #ylim = c(-7, 10))
+legend(x = 0.8, y = -25, 
+       legend = c("fitted effect", "conf interval"), 
+       lty = c(1, 2), col = c("black", "black"))
+```
+
+# Spatially autocorrelion: Semivariogram
+For the models you have used for Question 3, we have not explicitly accounted for spatial structure. That may lead to spatial autocorrelation of the data, based on the spatial structure we looked at for Q1. Based on the code from the lecture notes, plot a bubble plot and semivariogram of the residuals of the model that includes the TertiaryRds*StudyArea interaction. Does it look the residuals are spatially autocorrelated? Now make a new model that adds in the 2D spatial smoother that you used previously. Compare the evidence for spatial autocorrelation between this model and the model without the smoother. Does accounting for autocorrelation with the 2D smoother change whether you think the other predictors are important
+
+**Answer:** In the first tab I plotted the semivariogram and bubble plots of depicting the affect of autocorrelation. Clumps of similarly collered bubbles indicate spatial autocorelation. The top row is the model without a 2D smoother, the second row from a model with a 2D spatial smoother, and the botom row is of plots without and predictors. 
+
+**Answer:** The euclidean distance does not capture the variance attributed to parameters not included in the model. There is clearly spatial structure in the residuals. Without a spatial smoother in the model, there is clearly spatial structure in the residuals, and the semivariance doesn’t level off until a distance of about 50000 [m]. So the spatial smoother is doing its job. There is a little bit of spatial autocorelation in the model without a 2D spatial smoother. In the semivariogram the semivariance increases with distance. In the model with the 2D spatial smoother only the variance of the semivariance (vomit) increases with the distance. Accounting for autocorrelation does not appear to change the significance of the other predictors in the model, although it does still capture a good deal of variation. This means there are likely other predictors that have an affect on coyote ancestry that are not included in the model (I think). As more useful predictors are added to the model, a spatial smoother becomes less nessisary as it only acounts for unexplained variation of the response parameter. 
+
+```{r bublles}
+check <- function(mod, df, main = ""){
+  dat <- data.frame(lon = df$east, lat = df$north, resids = resid(mod))
+  coordinates(dat) <- c('lon', 'lat')
+  v1 <- variog(coords = df[ , c('east','north')], data = residuals(mod, type = 'pearson'), messages = FALSE)
+  
+  print(bubble(dat,zcol='resids', main = paste("Residuals of ", main, sep = "")))
+  plot(v1)
+  title(paste("semivariogram of ", main, sep = ""))
+  }
+```
+
+## Plotted effects
+```{r, fig.show="hold", out.width= "50%", warning = FALSE}
+gm_noD <- gam(ancestry ~ s(deer) + s(moose) + s(road1) + s(sqrt(road2)) + 
+                location + s(road3, by = location), 
+              data   = dogs,
+              family = gaussian)
+
+gm_2D <- gam(ancestry ~ s(deer) + s(moose) + s(road1) + s(sqrt(road2)) + 
+               location + s(road3, by = location) +  s(north, east, k = 20), 
+              data   = dogs,
+              family = gaussian) 
+               
+gm.nopred = gam(ancestry ~ 1, data = dogs, family = gaussian)
+
+par(mar = c(4, 4, 2, 2))
+check(gm_noD, dogs,  main = "GAM with no spatial smoother")
+check(gm_2D, dogs, main = "GAM with a 2d spatial smoother")
+check(gm.nopred, dogs, main = "GAM with no predictors")
+```
+
+## 2D Model Summary 
+```{r}
+summary(gm_2D)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,194 @@
+---
+title: "Homework 1: Linear Model Intorduction"
+author: "Jamie Ash"
+date: "due: 2021-09-01"
+output: 
+  #html_document: 
+  bookdown::html_document2:  
+    self-contained: yes
+    theme: paper #cerulean #cosmo #journal #readable
+    toc: true
+    smooth_scroll: true
+    toc_depth: 3
+    toc_float: true
+    number_sections: true
+    fig_caption: yes
+    code_folding: hide
+    # bibliography: ["geothermal.bib", "r.bib"]
+    # csl: apa-5th-edition.csl
+    # link-citations: yes
+---  
+
+<style type="text/css">  
+/* Note: CSS uses C-style commenting. */
+h1.title{font-size:22px; text-align:center;}
+h4.author{font-size:16px; text-align:center;}
+h4.date{font-size:16px; text-align:center;}
+body{ /* Normal  */ font-size: 13px}
+td {  /* Table   */ font-size: 12px}
+h1 { /* Header 1 */ font-size: 16px}
+h2 { /* Header 2 */ font-size: 14px}
+h3 { /* Header 3 */ font-size: 12px}
+.math{ font-size: 10pt;}
+.hi{ /* hanging indents */ 
+    padding-left:22px; 
+    text-indent:-22px;
+}
+blockquote {  
+    padding: 10px 20px;
+    margin: 0 0 20px;
+    font-size: 12px;
+    border-left: 5px solid #eee;
+}
+code.r{ /* code */ 
+       font-size: 12px;
+}
+pre{/*preformatted text*/ 
+    font-size: 12px;
+}
+p.caption {/* figure captions */ 
+    font-size: 1.0em;
+    font-style: italic; 
+} 
+</style>
+
+```{r setup, include=FALSE, message = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(emmeans)
+library(bookdown)
+library(gdata)
+library(ggplot2)
+library(car)
+library(effects)
+library(ggeffects)
+library(dplyr)
+library(kableExtra)
+library(readxl)
+library(plyr)
+library(tibble)
+library(ggResidpanel)
+library(ggpubr)
+library(yarrr)
+```
+
+# Lab Cultures Mean
+From the “Lab Cultures” worksheet, plot the mean length (Length..mm.) by Sex and Region. Plot error bars for +/- 1 standard error of the mean. There are many ways to do this; some options for summarizing data in a dataframe include using tapply() or aggregate() in base R, ddply() and summarize() from the “plyr” package, or group_by() and summarize() from the “dplyr” package. To plot the means and error bars you can combine plot() and segments(), or google one of many functions people have written to do it.
+```{r, fig.cap = "Made using base R's boxplot function. Box-plot depicting the length of male and female isopods across north and south regions. The box borders denote the 64% confidence intervals (+/- 1 standard error), and the black stems depict the 95% confidence intervals. The horizontal bold black lines are the group means."}
+infile <- "..\\data\\"
+fec_lab <- read_excel(path = paste(infile, "ManyakBellSotka_AmNat_AllData.xlsx",
+                                   sep = ""),
+                      sheet = "Lab Cultures")
+names(fec_lab)[4] = "Length"
+
+# Finding the group means via aggregate function. Not used to plot.
+reg_mean <- aggregate(Length ~ Region, data=fec_lab, FUN=mean)
+reg_sd   <- aggregate(Length ~ Region, data=fec_lab, FUN=sd)
+sex_mean <- aggregate(Length ~ Sex,    data=fec_lab, FUN=mean)
+sex_sd   <- aggregate(Length ~ Sex,    data=fec_lab, FUN=sd)
+
+# Using base R boxplot() function
+par(mfrow = c(1,2),oma = c(0, 0, 2, 0))
+boxplot(Length ~ Sex,    data = fec_lab, frame = TRUE)
+boxplot(Length ~ Region, data = fec_lab, frame = TRUE, ylab="")
+mtext("Size of Isopods Across Sex and Region: Independent", 
+      outer = TRUE, 
+      cex = 1)
+```
+
+```{r, fig.cap = "Made using ggplots boxplot function, with Sex as the facet wrap. Box-plot depicting the length of male and female isopods across north and south regions. The box borders denote the 64% confidence intervals (+/- 1 standard error), and the black stems depict the 95% confidence intervals (error bars). The horizontal bold black lines are the group means."}
+# Plotting the means of length by sex and region using ggplot
+ggplot(fec_lab, aes(x = Region, y = Length)) + 
+  geom_boxplot() +
+  facet_wrap(~Sex) + 
+  labs(x = "Region", 
+       y = "Isopod Length [mm]", 
+       title = "Size of Isopods Across Sex and Region: Interaction") + 
+  theme_bw()
+``` 
+
+**Answer:** I plotted both the Sex and Regions group means using base R and the ggplot2 package. For figure 1.2 I facet wrapped the Region group means by Sex, where as with Figure 1.1 I plotted the Region and Sex group means separately. I also found the group means and standard deviations using the aggregate function, but did not use this information to make Figure 1.1 or Figure 1.2. 
+
+# F-test on Lab Cultures
+Use lm(), and F-tests on the model, to test whether there is a significant difference between Sexes in mean length, whether there is a significant difference between Regions in mean length, and whether the effect of Region differs between Sexes. Report F-statistics and degrees of freedom. How do you interpret these results?
+
+```{r}
+# Region differs by Sex, No Interaction
+model_no <- lm(Length ~ Region+Sex, data = fec_lab) # No interaction
+model_in <- lm(Length ~ Region*Sex, data = fec_lab) # Interaction
+aov_no <- Anova(model_no, type = 2) # No Interaction
+aov_in <- Anova(model_in, type = 2) # Interaction
+round(aov_no, 2)
+round(aov_in, 2)
+```
+**Answer:** To test if there is a difference between sexes in mean length, whether there is a difference between regions in mean length, and whether the effect of region differs between sexes I first performed a multi-way anova with interaction on isopod Length, Sex, and Region. I found that the effect of Region does not differs between Sexes (p = 0.7), but both Region and Sex appear to have a significant effect on Length (p <  2e-16). Then I performed a type 2 multi-way ANOVA with out interaction on isopod Length, Sex, and Region. I found that the both isopod Region and Sex do have a significant effect on isopod Length independently (p < 2e-16). The number 2e-16 is the default value my R software displays for very, very small numbers. 
+
+# Plotting Lab Cultures
+Plot the model-fitted group means and standard errors (using the “effects” or “ggeffects” package is probably easiest).
+```{r, message=FALSE, fig.cap= "The model-fit group means (blue/red dots) and standard errors (blue/red bars) are plotted using the ggeffect package. The increase in Length from male to female is similar across regions (North/South)."}
+plot(ggeffect(model_no, terms = c("Sex", "Region")),
+     add.data = TRUE, 
+     facet = TRUE,
+     show.y.title = TRUE)
+```
+
+# Egg Data Plotting 
+Using the “Egg Data” worksheet, plot Number of Eggs vs. Length, and color code the plotted points by Region. (Note, the authors did not include a Region variable in this worksheet, so you will need to create one by referring to the other worksheets). There are many ways to do this.
+```{r, fig.cap="Scatter plot of Egg count and Length of Isopods across different regions (Red/Blue). Regions are North and South classifications of population location (Nahant, Magnolia, VIMS CCVA) inferred from the 'Lab Cultures' excel sheet."}
+fec_egg <- read_excel(path = paste(infile, "ManyakBellSotka_AmNat_AllData.xlsx",
+                                sep = ""),
+                   sheet = "Egg Data")
+# Creating an empty vector of NA's to fill
+fec_egg$Region <- rep(NA, nrow(fec_egg))
+fec_egg[fec_egg$Population == "CCVA",    ]$Region <- "South"
+fec_egg[fec_egg$Population == "Magnolia",]$Region <- "North"
+fec_egg[fec_egg$Population == "Nahant",  ]$Region <- "North"
+fec_egg[fec_egg$Population == "VIMS",    ]$Region <- "South"
+names(fec_egg)[3] = "Length"
+
+ggplot() + 
+  geom_point(aes(Number,  Length, colour = Region), data = fec_egg) +
+  labs(x = "Number of Eggs", 
+       y = "Isopod Length [mm]", 
+       title = "Eggs and Isopods and Latitude") + 
+  theme_bw()
+```
+
+# Egg Data lm() and F-test
+Fit a linear model to test whether the relationship between Number of Eggs and Length differs between Regions. Perform and report the appropriate F-test to test this question. How might you interpret these results?
+```{r}
+# For interaction use * not +
+model <- lm(Length ~ Number*Region, data = fec_egg)
+#summary(model)
+atbl_egg <- round(Anova(model, type = 2), 2)
+atbl_egg
+```
+
+**Answer:** To test whether the relationship between Number of Eggs and Length differs between Regions I performed a multi-way ANOVA with interaction between Length, Number, and Region. I found that the relationship between Number of Eggs and Length does not differ significantly across Region (p = 0.81). While there is a significant effect on Length by Region (p < 2e-16). This is shown in Figure 6.1 below. While the intercepts of the two trend lines (Regions effect on Length) differ greatly, the slope (interaction) are similar. Summary of the model output was done, but not displayed.    
+
+# Adding lines to Egg Data
+For #5 you have essentially fit two linear regressions, one for each Region. Take your plot from #4 and add these two lines.
+```{r, message = FALSE, fig.cap = "The same scatter plot as Figure 4, but with trend lines overlaid on the regional data to illustrate the results of the multi-way ANOVA on continuous/count data. While the intercepts of the two trend lines (Regions effect on Length) differ greatly, the slope (interaction) are similar."}
+ggplot(aes(Number,  Length, colour = Region), data = fec_egg) + 
+  geom_point() +
+  geom_smooth(method = lm, se = FALSE) + 
+  labs(x = "Number of Eggs", 
+       y = "Isopod Length [mm]", 
+       title = "Eggs and Isopods and Latitude") + 
+  theme_bw()
+```
+
+# Egg Data Model diagnostics
+For the model you fit in #5, make some plots that explore whether the residuals of the model are normally distributed, whether the variance of the residuals increases as Length increases, and whether the variance of the residuals varies between regions.
+```{r}
+resid_panel(model)
+resid_xpanel(model) + geom_boxplot()
+```
+
+**Answer:** On the top right, in the quantile-quantile plot, the empirical quantiles for 
+the residuals are close to the predicted line meaning the residuals are approximately 
+normal. Furthermore, in the histogram of residuals (middle left plot), the probability density function appears to be normal. To test ANOVA's assumption that the residual variance is similar across groups, the residuals are plotted against the group predictors (bottom row) ie. Number of Eggs and Region. It can be seen that the North and South regions have a similar spread of residuals, as well as a constant spread of residuals across the Number of Eggs. 
+
+
+
+
+

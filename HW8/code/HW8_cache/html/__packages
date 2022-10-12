@@ -1,0 +1,12 @@
+base
+bookdown
+ggplot2
+carData
+car
+effects
+ggeffects
+MASS
+GGally
+glmmTMB
+ggResidpanel
+emmeans

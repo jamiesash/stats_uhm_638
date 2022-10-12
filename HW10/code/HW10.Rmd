@@ -1,0 +1,245 @@
+---
+title: "HW10 - Model Selection"
+author: "Jamie Ash"
+date: "11/03/2021"
+output: 
+  bookdown::html_document2:  
+    self-contained: yes
+    theme: paper #cerulean #cosmo #journal #readable
+    toc: true
+    smooth_scroll: true
+    toc_depth: 3
+    toc_float: true
+    number_sections: true
+    fig_caption: yes
+    code_folding: hide
+    # bibliography: ["geothermal.bib", "r.bib"]
+    # csl: apa-5th-edition.csl
+    # link-citations: yes
+---  
+
+<style type="text/css">  
+/* Note: CSS uses C-style commenting. */
+h1.title{font-size:22px; text-align:center;}
+h4.author{font-size:16px; text-align:center;}
+h4.date{font-size:16px; text-align:center;}
+body{ /* Normal  */ font-size: 13px}
+td {  /* Table   */ font-size: 12px}
+h1 { /* Header 1 */ font-size: 16px}
+h2 { /* Header 2 */ font-size: 14px}
+h3 { /* Header 3 */ font-size: 12px}
+.math{ font-size: 10pt;}
+.hi{ /* hanging indents */ 
+    padding-left:22px; 
+    text-indent:-22px;
+}
+.main-container {
+  max-width: 1000px;
+  margin-left: auto;
+  margin-right: auto;
+}
+blockquote {  
+    padding: 10px 20px;
+    margin: 0 0 20px;
+    font-size: 12px;
+    border-left: 5px solid #eee;
+}
+code.r{ /* code */ 
+       font-size: 12px;
+}
+pre{/*preformatted text*/ 
+    font-size: 12px;
+}
+p.caption {/* figure captions */ 
+    font-size: 1.0em;
+    font-style: italic; 
+} 
+.vscroll-plot {
+    width: 800px;
+    height: 400px;
+    overflow-y: scroll;
+    overflow-x: hidden;
+}
+body {
+text-align: justify}
+</style>
+
+
+```{r setup, include=FALSE}
+library(bookdown)
+library(ggplot2)
+library(bookdown)
+library(ggplot2)
+library(car)
+library(effects)
+library(ggeffects)
+library(MASS)
+library(GGally)
+library(glmmTMB)
+library(ggResidpanel)
+library(emmeans)
+library(MuMIn)
+library(qpcR)
+library(gridExtra)
+library(grid)
+knitr::opts_chunk$set(echo = TRUE)
+```
+The file “zooplankton_size_diversity.csv” contains data from the paper, Ye et al. 2013. The data were collected on 5 cruises in the East China Sea. The researchers counted and identified the zooplankton collected in a 330 µm mesh net; the total number of fish larvae was recorded from the same samples. They also measured chlorophyll concentration, nitrate, silicate, phosphate, and temperature, with each variable averaged over the depth from which the plankton net tow was taken.  
+
+The authors used this data to test a number of hypotheses regarding the factors that influence control of phytoplankton by zooplankton (i.e. top-down control). They used the ratio of total zooplankton biomass (estimated from biovolume) to chlorophyll-a as a proxy of top-down control; i.e., if there are more zooplankton relative to phytoplankton then the implication is that zooplankton are more strongly controlling phytoplankton biomass. This ratio was log10-transformed to give an approximately normally distributed response variable.  
+
+The authors wanted to test the following 6 hypotheses:  
+1) Increasing size diversity of zooplankton enhances top-down control, due to more complete consumption of the whole size range of phytoplankton  
+2) A greater proportion of large zooplankton enhances top-down control, because larger zooplankton are more effective grazers  
+3) Nutrient enrichment weakens top-down control, by promoting grazing-resistant prey.  
+4) Increasing taxonomic diversity of zooplankton enhances top-down control, through a diversity of feeding modes.  
+5) Greater fish abundance decreases top-down control, via a trophic cascade  
+6) Increasing temperature enhances top-down control, by accelerating consumption relative to production.  
+
+The authors test these hypotheses using regression where log10(zooplankton:phytoplankton biomass ratio) is the response variable, and the predictors are: zooplankton size diversity, proportion of large zooplankton (NBSS  slope), zooplankton taxonomic diversity (shannon diversity), number of fish larvae (log10(x+1)-transformed), water temperature (WT), and the concentrations of nitrate, phosphate, and silicate. The NBSS slope measures the size-spectrum of  zooplankton, and this number becomes less negative as a greater proportion of large zooplankton are present.  
+ 
+For this assignment you need to test the author's hypotheses using regression and  model selection with this data. There are different ways to do this, so for learning purposes let’s try a couple different ways and compare. It would be nice to have six different predictors representing the six different hypotheses. However, there are 3 different nutrients, but these are highly correlated with each other. So just pick one of the nutrients and use that as the predictor representing the nutrient hypothesis. In order to account for the structure of the sampling (i.e. non-independence of the data), you should use Cruise as a factor in all models, regardless of the other predictors you include/exclude. This is because samples from the same cruise are likely to be similar, due to various unmeasured factors. Therefore the cruise factor is a kind of 'structural' predictor separate from the hypotheses we are testing.  
+
+```{r, message = FALSE, cache = TRUE}
+# reading data from given csv
+plank <- read.csv(paste("..\\data\\", "zooplankton_size_diversity.csv", sep = ""))
+colnames(plank) <- c("ID", "cruise", "station", "year", "month", "day", 
+                     "biomass", "diversity", "nbss", "shannon", "larvae", "wt", 
+                     "NO3", "PO4", "SiO3")
+plank$cruise <- as.factor(plank$cruise)
+```
+
+# Six Model Selection {.tabset}
+Make six linear models, each model having one of the six predictors. Plot the raw relationships and fitted lines, and report R2. Make a table of AICc, delta-AICc, and Akaike weights for the six models. How do you interpret these results in light of the authors’ hypotheses? 
+
+**Answer:** By creating six different models with one predictor (not counting cruise), and using AIC, it was found that the model with size diversity as the predictor is the best model. All other models have a very high $\Delta AIC$ (> 20 AIC). In light of the authors hypothesis, I would say that hypothesis #1 is supported ($p > 0.05$), i.e. Increasing size diversity of zoo-plankton enhances top-down control. Most of the other models receive a significant effect for the individual predictors, but are not appropriate models to use. Below I have the summary tables for the general linear models using a gaussian family (log of biomass is normally distributed), the AIC tables with delta AIC and Akaike weights, and finally the fitted effects. 
+
+## Summary Table
+```{r, message = FALSE, cache = TRUE}
+mod_div  <- glm(biomass ~ diversity + cruise, data = plank, family = gaussian(link = "identity"))
+mod_nbss <- glm(biomass ~ nbss + cruise,      data = plank, family = gaussian(link = "identity"))
+mod_shan <- glm(biomass ~ shannon + cruise,   data = plank, family = gaussian(link = "identity"))
+mod_larv <- glm(biomass ~ larvae + cruise,    data = plank, family = gaussian(link = "identity"))
+mod_wt   <- glm(biomass ~ wt + cruise,        data = plank, family = gaussian(link = "identity"))
+mod_nuts <- glm(biomass ~ NO3 + cruise,       data = plank, family = gaussian(link = "identity"))
+
+summary(mod_div)$coefficients[2,]
+summary(mod_nbss)$coefficients[2,]
+summary(mod_shan)$coefficients[2,]
+summary(mod_larv)$coefficients[2,]
+summary(mod_wt)$coefficients[2,]
+summary(mod_nuts)$coefficients[2,]
+```
+
+## AIC Table
+```{r, message = FALSE, cache = TRUE}
+aicdf <- MuMIn::AICc(mod_div, mod_nbss, mod_shan, mod_larv, mod_wt, mod_nuts)
+aicdf$delta <- aicdf$AICc - min(aicdf$AICc)
+aicdf$aki <- akaike.weights(aicdf$AICc)$weights
+aicdf
+
+all.models = list(mod_div, mod_nbss, mod_shan, mod_larv, mod_wt, mod_nuts)
+aic.table = model.sel(all.models)
+aic.table
+importance(all.models)
+```
+
+## Plotted Effectss
+```{r, message = FALSE, cache = TRUE}
+a <- plot(ggeffect(mod_div)$diversity, add = TRUE)
+b <- plot(ggeffect(mod_nbss)$nbss, add = TRUE)
+c <- plot(ggeffect(mod_shan)$shan, add = TRUE)
+d <- plot(ggeffect(mod_larv)$larv, add = TRUE)
+e <- plot(ggeffect(mod_wt)$wt, add = TRUE)
+#plot(ggeffect(mod_nuts)$nuts)
+grid.arrange(a,b,c,d, e)
+```
+
+# One Large Model {.tabset}
+Testing the hypotheses separately has a nice clarity to it, but the hypotheses are not mutually exclusive, and support for one predictor may change when it is competing against another predictor in the same model. This is especially likely when the predictors are partially correlated (e.g. the different zooplankton diversity measures). Make one model that has all the predictors, and plot the fitted effects as well as residual diagnostics. Test the importance of the predictors using LRTs. How do these results differ from those found in #1? What are the implications for the authors’ hypotheses? Why do you think the results might differ?  
+
+**Answer:** By using one model with all the predictors included (with no interaction) I found that Diversity, Nitrogen and cruise number were significant predictors. I would assume that a model only including those predictors would be an appropriate model to use. These results differ from those found in question 1 in that nutrients are now the only other significant predictor of biomass (including size diversity and cruise), and all other predictors are not significant. Using 6 models it was found that only larvae abundance was the only non-significant predictor. The implications for the authors’ hypotheses would be that now only hypothesis 1 and 3 are supported. I think the results differ because the support for one predictor changes when it is competing against another predictor. Before I only included two predictors at a time, but here I include all 7. 
+
+## Model Summary  
+```{r, message = FALSE, cache = TRUE}
+mod_all  <- glm(biomass ~ diversity + nbss + shannon + larvae + wt + NO3 + cruise, 
+                data = plank, 
+                family = gaussian(link = "identity"))
+# LRTs
+summary(mod_all)
+Anova(mod_all)
+```
+
+## Plotted Effects
+```{R, message = FALSE, cache = TRUE}
+# potting effec
+a <- plot(ggeffect(mod_all)$diversity, add = TRUE, jitter = 0.05, show.title = FALSE)
+b <- plot(ggeffect(mod_all)$nbss, add = TRUE, jitter = 0.05, show.title = FALSE)
+c <- plot(ggeffect(mod_all)$shannon, add = TRUE, jitter = 0.05, show.title = FALSE)
+d <- plot(ggeffect(mod_all)$larvae, add = TRUE, jitter = 0.05, show.title = FALSE)
+e <- plot(ggeffect(mod_all)$wt, add = TRUE, jitter = 0.05, show.title = FALSE)
+f <- plot(ggeffect(mod_all)$NO3, add = TRUE, jitter = 0.05, show.title = FALSE)
+grid.arrange(a, b, c, d ,e, f)
+```
+
+## Diagnostics
+```{r, message = FALSE, cache = TRUE}
+# residual diagnostics
+ggpairs(plank, columns = 7:13)
+resid_panel(mod_all)
+```
+
+# Model Averaging 1{.tabset}
+Testing the predictors in one big model is nice, but we might be concerned that this is not the ‘best’ model and that effect estimates in the ‘best’ model might differ from those in the full model. Use dredge() and model.sel() to compare all possible models with these predictors. (Note, you can make sure Cruise is in all models by specifying `fixed = ~ Cruise`, in the `dredge()` function).  
+
+What does the distribution of Akaike weights look like? By comparing the models that have some support from the data, which predictors do you think are important? What are the variable importance calculated from the Akaike weights? Do the effect estimates vary much across models?
+
+**Answer:** The distribution of Akaike weights looks like it's log-normally distributed, with a peak near zero, and a few values above 0.1 [Akaike]. By comparing the models that have some support from the data, and found that the predictors diversity, nutrients, and cruise number are the most important predictors, all of which have a sum of weights equal to 1. For the models that include these three predictors, the effects do not differ much between models, the standard deviation for the predicted effects of diversity and nutrients across models is 0.018 and 0.003 respectively. 
+
+## Dredged Model
+```{r, message = FALSE, cache = TRUE}
+mod_all  <- glm(biomass ~ diversity + nbss + shannon + larvae + wt + NO3 + cruise, 
+                data = plank, 
+                family = gaussian(link = "identity"),
+                na.action = na.pass)
+plank_dredge = dredge(mod_all, extra = "R^2", fixed = ~cruise)
+head(model.sel(plank_dredge))
+#importance(plank_dredge[1:30])
+importance(plank_dredge)
+
+# standard deviation of effects for important predictors
+div_sd <- sd(plank_dredge$diversity, na.rm = TRUE)
+nuts_sd <- sd(plank_dredge$NO3, na.rm = TRUE)
+```
+
+## Akaike Weights Distribution
+```{r, message = FALSE}
+hist(model.sel(plank_dredge)$weight)
+```
+
+# Model Averaging 2
+Creating all possible models with a set of predictors produces complex results, but one way to synthesize the output, while appropriately accounting for model uncertainty, is model averaging. Use model averaging to get average effects for the six predictors representing our six hypotheses. How do your conclusions from this approach compare to your conclusions from #2, where you assumed that one model (with all the predictors) was the appropriate model to use?
+
+**Answer:** I found the average effects using all combinations of models from dredge using `FUN = mean` in the `aggregate()` function. Because all possible combinations of models were created, each row has an equal number of NA values, so I did not worry about how to treat NA's (as 0's or omitted). Compared to my large model from question number 2, I found that the predicted effects of the significant predictors (nutrients and diversity) are similar (about 0.25, and -0.039 respectively), while the predicted effects of the non-significant predictors range widely. 
+
+```{r}
+temp <- lapply(plank_dredge,FUN = mean, na.rm = TRUE)
+data.frame(temp[3:8])
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

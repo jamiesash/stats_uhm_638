@@ -1,0 +1,238 @@
+---
+title: "Homework 4: Poisson and Overdispersion"
+author: "Jamie Ash"
+date: "due: 2021-09-22"
+root.dir: "C:\\Users\\james\\Desktop\\OCN638\\HW4\\code"
+output: 
+  #html_document: 
+  bookdown::html_document2:  
+    self-contained: yes
+    theme: paper #cerulean #cosmo #journal #readable
+    toc: true
+    smooth_scroll: true
+    toc_depth: 3
+    toc_float: true
+    number_sections: true
+    fig_caption: yes
+    code_folding: hide
+    # bibliography: ["geothermal.bib", "r.bib"]
+    # csl: apa-5th-edition.csl
+    # link-citations: yes
+---  
+
+<style type="text/css">  
+/* Note: CSS uses C-style commenting. */
+h1.title{font-size:22px; text-align:center;}
+h4.author{font-size:16px; text-align:center;}
+h4.date{font-size:16px; text-align:center;}
+body{ /* Normal  */ font-size: 13px}
+td {  /* Table   */ font-size: 12px}
+h1 { /* Header 1 */ font-size: 16px}
+h2 { /* Header 2 */ font-size: 14px}
+h3 { /* Header 3 */ font-size: 12px}
+.math{ font-size: 10pt;}
+.hi{ /* hanging indents */ 
+    padding-left:22px; 
+    text-indent:-22px;
+}
+blockquote {  
+    padding: 10px 20px;
+    margin: 0 0 20px;
+    font-size: 12px;
+    border-left: 5px solid #eee;
+}
+code.r{ /* code */ 
+       font-size: 12px;
+}
+pre{/*preformatted text*/ 
+    font-size: 12px;
+}
+p.caption {/* figure captions */ 
+    font-size: 1.0em;
+    font-style: italic; 
+} 
+</style>
+
+<style>
+.vscroll-plot {
+    width: 800px;
+    height: 400px;
+    overflow-y: scroll;
+    overflow-x: hidden;
+}
+</style>
+
+```{r setup, include=FALSE}
+library(bookdown)
+library(ggplot2)
+library(car)
+library(effects)
+library(ggeffects)
+library(MASS)
+library(GGally)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Poisson Distribution No Interaction
+Create a model where the count of kole is a function of turf algae, hard coral, sand, and crustose coralline algae. For now, include all these terms in the model, because we are interested in all of them as potential drivers of abundance. Use a poisson distribution to model the count distribution. Using likelihood ratio tests for the model terms, which appear to be significantly related to kole abundance? Plot the fitted model effects (it may be easiest to see the relationships with the yaxis on a log scale for this model). Based on these plots, which substrate types are predicted to have the largest effect on abundance? You can also compare the slope coefficients for the predictors, because all the predictors are measured on the same 
+scale (percent cover)
+
+## Answer {.tabset}
+
+    Using a GLM with a poisson family of distributions I found all of the terms (e.g. sand, hard coral, crustose  coralline algae, and turf algae) included in the model to be significantly related to kole abundance (p < 0.05). I found hard coral and crustose coralline algae to have the largest effect on kole abundance given that they have the smallest p value and their estimated slopes are deviate the most from the mean slope. 
+
+### Poisson GLM
+
+```{r}
+infile <- "..\\data\\"
+fish   <- read.csv(paste(infile, "CRCP_Reef_Fish_Surveys_Hawaii_kole.csv", 
+                         sep = ""))
+
+model_noint <- glm(count ~ sand + ta +cca + hard_coral, data = fish, 
+                           family = poisson)
+#summary(model_noint)
+
+Anova(model_noint)
+```
+
+### GLM Scatterplots
+
+```{r, out.width = "50%"}
+figs <- plot(ggeffect(model_noint, log.y = TRUE), add.data = TRUE)
+for (i in 1:4) print(figs[[i]])
+```
+
+# Quasipoisson GLM
+In the previous model we did not consider overdispersion, which means that the counts may have more variation than predicted by the poisson distribution. Now use a quasipoisson model instead. How much overdispersion is there, based on this model? How does accounting for overdispersion change the results? Which aspects of the model have changed, and which have not?
+
+## Answer {.tabset}
+
+```{r}
+model <- glm(count ~ sand + ta + cca + hard_coral, 
+             data = fish, 
+             family = quasipoisson)
+
+modelsum <- summary(model)
+```
+
+    Using a GLM with a quasipoisson family of distributions I found the overdispersion parameter to be `r round(modelsum$dispersion, 2)`. By accounting for this overdispersion I found that sand and turf algae are no longer significantly related to kole abundance as compared to the GLM model with `family = poisson`, while crustose coralline algae, and hard coral are still significantly related to kole abundance. The quasipoisson model's variance is proportional to the mean, rather than equal to the mean (as with a poisson model), and corrected for by the dispersion parameter. 
+
+### Summary Table
+
+```{r}
+Anova(model, test = 'F')
+```
+
+### GLM Scatterplots
+
+```{r, out.width = "50%"}
+figs <- plot(ggeffect(model), add.data= TRUE)
+for (i in 1:length(figs)) print(figs[[i]])
+```
+
+# Negative Binomial GLM 
+Another option for overdispersed counts is to use a negative binomial distribution instead of a poisson distribution. How do the results from a negative binomial model compare to the quasipoisson approach?
+
+## Answer {.tabset}
+
+    Using a negative binomial model results in turf algae being significantly related to kole abundance compared to the quasipoisson model where it was not significantly related (although it was pretty close 0.06 = p). The negative binomial model has an additional parameter theta, $\theta$, that can drastically change the shape of the binomial distribution and allows it to account for higher variance.  
+
+### Summary Tables
+
+```{r}
+model <- glm.nb(count ~ ta+ sand + cca + hard_coral, 
+             data = fish)
+
+# summary(model)
+
+Anova(model, test = 'F')
+```
+
+### GLM Scatterplots
+
+```{r, out.width = "50%"}
+figs <- plot(ggeffect(model), add.data= TRUE)
+for (i in 1:4) print(figs[[i]])
+```
+
+# Two new models
+One of the main challenges in trying to decipher patterns from survey data is that ‘correlation is not causation’. Make two new models, one where sand is the only predictor, and one where turf algae is the only predictor. For both models use the negative binomial distribution. How do the results of these models differ from the model in #3, where all four predictors were included together? What do you think could explain why the results have changed? It may help to look at a correlogram of the predictors. The function ggpairs() in the package GGally is particularly nice for this (note: I am not requiring you to make a correlogram here, but you may find it helpful).
+
+## Answers {.tabset}
+
+    Run individually, each parameter is significantly correlated to kole abundance. When run predictors are run individually the GLM model accounts all the variation in kole abundance to that single parameter. When other predictors are included in the model, variation in kole abundance can be explained in more detail and not incorrectly attributed to a single predictor. Additionally, we did not include the predictor "ma" in the model even though it is a substrate type with a large percent coverage at many sites. "ma" was difficult to include in the model because it has many zero entries, and is positively correlated with "cca". 
+
+### Summary Tables
+
+```{r}
+model_sand <- glm.nb(count ~ sand, data = fish)
+model_ta   <- glm.nb(count ~ ta,   data = fish)
+
+Anova(model_sand, test = 'F')
+Anova(model_ta,   test = 'F')
+```
+
+### GLM Scatterplots
+
+```{r, out.width = "50%"}
+plot(ggeffect(model_sand), add.data= TRUE)$sand
+plot(ggeffect(model_ta),   add.data= TRUE)$ta
+
+```
+
+### Correlogram
+
+```{r}
+# Quick display of two cabapilities of GGally, to assess the distribution and correlation of variables 
+library(GGally)
+
+# Create data 
+fishes <- fish[,c("ta", "sand", "cca", "hard_coral", "ma")]
+# Check correlations (as scatterplots), distribution and print corrleation coefficient 
+ggcorr(fishes, method = c("everything", "pearson")) 
+```
+
+# Final Question
+Finally, what are your overall conclusions about substrate associations of kole, 
+from this look at the data
+
+## Answer {.tabset}
+
+    The dispersion parameter is large for this data set, so using a pure Poisson distribution is likely not the best model to use, and a quasipoission distribution should be used instead (or a negative binomial). For all models "cca" and "hard_coral" are significantly related to Kole abundance, but they are are positively correlated (~0.2cc). If I treat "cca" and "hard_coral" as the same parameters (by adding them together) then "ta" is no longer significantly related to Kole abundance in either the negative binomial or quasipoisson model.  
+
+### Summary Tables
+```{r}
+fish$both <- fish$hard_coral + fish$cca
+
+model <- glm(count ~ sand + ta + I(hard_coral + cca), 
+             data = fish, 
+             family = quasipoisson)
+
+modelsum <- summary(model)
+Anova(model, test = 'F')
+
+model <- glm.nb(count ~ ta+ sand + I(hard_coral + cca), 
+             data = fish)
+Anova(model, test = 'F')
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

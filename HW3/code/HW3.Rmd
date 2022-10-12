@@ -1,0 +1,196 @@
+---
+title: "Homework 3: Coding Practice"
+author: "Jamie Ash"
+date: "due: 2021-09-15"
+output: 
+  #html_document: 
+  bookdown::html_document2:  
+    self-contained: yes
+    theme: paper #cerulean #cosmo #journal #readable
+    toc: true
+    smooth_scroll: true
+    toc_depth: 3
+    toc_float: true
+    number_sections: true
+    fig_caption: yes
+    code_folding: hide
+    # bibliography: ["geothermal.bib", "r.bib"]
+    # csl: apa-5th-edition.csl
+    # link-citations: yes
+---  
+
+<style type="text/css">  
+/* Note: CSS uses C-style commenting. */
+h1.title{font-size:22px; text-align:center;}
+h4.author{font-size:16px; text-align:center;}
+h4.date{font-size:16px; text-align:center;}
+body{ /* Normal  */ font-size: 13px}
+td {  /* Table   */ font-size: 12px}
+h1 { /* Header 1 */ font-size: 16px}
+h2 { /* Header 2 */ font-size: 14px}
+h3 { /* Header 3 */ font-size: 12px}
+.math{ font-size: 10pt;}
+.hi{ /* hanging indents */ 
+    padding-left:22px; 
+    text-indent:-22px;
+}
+blockquote {  
+    padding: 10px 20px;
+    margin: 0 0 20px;
+    font-size: 12px;
+    border-left: 5px solid #eee;
+}
+code.r{ /* code */ 
+       font-size: 12px;
+}
+pre{/*preformatted text*/ 
+    font-size: 12px;
+}
+p.caption {/* figure captions */ 
+    font-size: 1.0em;
+    font-style: italic; 
+} 
+</style>
+
+<style>
+.vscroll-plot {
+    width: 800px;
+    height: 400px;
+    overflow-y: scroll;
+    overflow-x: hidden;
+}
+</style>
+
+```{r setup, include=FALSE}
+library(bookdown)
+knitr::opts_chunk$set(echo = TRUE)
+setwd("C:\\Users\\james\\Desktop\\OCN638\\HW3\\code")
+```
+
+# Summary statistics and Data Visualization {.tabset}
+**Statistics:** Let’s look at some basic summary statistics. In total there are 209 fish species encountered and counted in these surveys. Identify the top twelve species in terms of these three statistics: (1) mean abundance, (2) maximum abundance, (3) coefficient of variation in abundance. In other words, which species are most abundant on average, which reach the highest abundances, and which have the most variable abundances? To make these calculations, you’ll want to focus on the ‘count’ column (number of fish observed at a location), as well as the ‘commonname’ or ‘taxonname’ columns. The latter two are nearly identical, you can choose which you prefer to use. To do these calculations in base R, tapply() or aggregate() will be useful, or to use the ‘tidyverse’ you can look into the summarize() function in the package dplyr.  
+    
+**Visualization:** Now let’s visualize how the abundances of the most common species vary with depth, to get a sense for whether species have different depth niches. Using the top twelve species based on mean abundance, plot a scatter-plot of count vs. depth (the column is named ‘depth’). Add a smoother to help visualize mean count vs. depth, put all twelve species on a single plot (with twelve panels), and make sure each panel is titled using the species name. The patterns in abundance will be easier to see if you transform the counts, for example by taking the square root of the counts, because the counts are very skewed. I would like you to make this twelve-paneled figure in two ways. First, write a ‘for’ loop in which you iterate your plotting code for the twelve species. The function scatter.smooth() is a simple one for making a scatterplot with a smoother. Second, use ggplot() to do the same thing. The functions geom_point(), geom_smooth(), and facet_wrap() will be helpful. 
+
+```{r}
+library(ggplot2)
+infile <- "..\\data\\"
+fish   <- read.csv(paste(infile, "CRCP_Reef_Fish_Surveys_Hawaii_expanded.csv", 
+                         sep = ""))
+
+uabun <- aggregate(count ~ commonname, FUN = mean, data = fish)
+mabun <- aggregate(count ~ commonname, FUN = max,  data = fish)
+vabun <- aggregate(count ~ commonname, FUN = sd,  data = fish)
+vabun$count <- vabun$count/mabun$count # CoV = sd/u
+
+ind   <- sort(uabun[,2], decreasing = TRUE, index.return = TRUE)$ix
+uabun <- uabun[ind, ]
+ind   <- sort(mabun[,2], decreasing = TRUE, index.return = TRUE)$ix
+mabun <- mabun[ind, ]
+ind   <- sort(vabun[,2], decreasing = TRUE, index.return = TRUE)$ix
+vabun <- vabun[ind, ]
+```
+## Summary statistics {.tabset}
+
+### Mean Abundance: Top 20
+```{r}
+df <- data.frame(uabun[1:20,])
+colnames(df) <- c("Fish Name", "Mean Abundance")
+rownames(df) <- c(as.character(1:20))
+df
+```
+
+### Maximum Abundance: Top 20
+```{r}
+df <- data.frame(mabun[1:20,])
+colnames(df) <- c("Fish Name", "Max Abundance")
+rownames(df) <- c(as.character(1:20))
+df
+```
+
+### Coefficient of Variation: Top 20
+```{r}
+df <- data.frame(vabun[1:20,])
+colnames(df) <- c("Fish Name", "Coefficient of Variation")
+rownames(df) <- c(as.character(1:20))
+df
+```
+
+## Visualization {.tabset}
+
+### Using ggplot2: Top 12
+
+```{r, out.width = "50%"}
+
+fish$count <- as.numeric(fish$count)
+fish$depth <- as.numeric(fish$depth)
+
+nam <- uabun[1:12,]$commonname
+#par(mfrow = c(round(length(nam)/3), 3))
+for(i in nam) {
+  idx   <- fish$commonname == i
+  
+  cnt   <- sqrt(fish[idx,]$count)
+  dth   <- fish[idx,]$depth
+  
+  model1 <- loess(cnt ~ dth, normalize = FALSE, method = "loess", span = 1)
+  pred   <- predict(model1, fish[idx,], se = TRUE, inf.rm = TRUE)
+  pred$lwr <- pred$fit - 1.96*pred$se.fit
+  pred$upr <- pred$fit + 1.96*pred$se.fit
+  
+  p <- ggplot() + 
+    geom_point(aes(dth, cnt))+
+    xlab("Depth [m]") +
+    ylab("Fish Count [square root]") +
+    labs(title = paste("Fish name:", i)) + 
+    geom_line(aes(x = dth, y = pred$lwr), 
+              linetype = 1, 
+              alpha = 0.8, 
+              col = "coral4") +
+    geom_line(aes(x = dth, y = pred$upr), 
+              linetype = 1, 
+              alpha = 0.8, 
+              col = "coral4") +
+    geom_ribbon(aes(x = dth, ymin = pred$lwr, ymax = pred$upr), 
+                fill = "lightcoral", 
+                alpha = 0.2) +
+    theme_bw()
+    #+ theme(plot.background = element_rect(colour = "black"))
+  
+  print(p)
+  }
+```
+
+### Using scatter.smooth: Top 12
+
+```{r, warning = FALSE, out.width = "50%"}
+nam <- uabun[1:12,]$commonname
+#par(mfrow = c(round(length(nam)/3), 3))
+for(i in nam) {
+  idx <- fish$commonname == i
+  y   <- sqrt(fish[idx,]$count)
+  x   <- fish[idx,]$depth
+  scatter.smooth(x, y, 
+                 xlab = "Depth [m]", 
+                 ylab = "Fish Count [square root]",
+                 main = paste("Fish name:", i),
+                 span = 1) 
+}
+```
+
+# Conclusions
+Finally, what are your conclusions from this visual inspection of the data? 
+
+**ANSWER:** 
+ 
+        There is a generaly no trend (slope = 0) between depth and the square of count, with fairly consitent residuals (the confidence interval spread) across fish count. Many of the trend lines do have a slight concave feature.
+        I wanted to have dotted lines along the border of the 95% confidence intervals. To do this I had to run a separate loess smooth function, grab the errors from that, then calculate the 95% confidence intervals and plot them using geom_line(). Those lines did not line up perfectly with the geom_smooth(method = "loess") confidence intervals (although they were close) so I had to use the geom_ribbon() to generate the shaded regions. I left out the center line because I think it looks cool this way. Because I did not use the geom_smooth() function I did not use the facet_wrap(~commonname) function. 
+
+
+
+
+
+
+
+
+

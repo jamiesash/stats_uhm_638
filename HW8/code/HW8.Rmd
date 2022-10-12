@@ -1,0 +1,224 @@
+---
+title: "HW8 - Replication, Statistical Power, and Type M Error"
+author: "Jamie Ash"
+date: "10/18/2021"
+output: 
+  bookdown::html_document2:  
+    self-contained: yes
+    theme: paper #cerulean #cosmo #journal #readable
+    toc: true
+    smooth_scroll: true
+    toc_depth: 3
+    toc_float: true
+    number_sections: true
+    fig_caption: yes
+    code_folding: hide
+    # bibliography: ["geothermal.bib", "r.bib"]
+    # csl: apa-5th-edition.csl
+    # link-citations: yes
+---  
+
+<style type="text/css">  
+/* Note: CSS uses C-style commenting. */
+h1.title{font-size:22px; text-align:center;}
+h4.author{font-size:16px; text-align:center;}
+h4.date{font-size:16px; text-align:center;}
+body{ /* Normal  */ font-size: 13px}
+td {  /* Table   */ font-size: 12px}
+h1 { /* Header 1 */ font-size: 16px}
+h2 { /* Header 2 */ font-size: 14px}
+h3 { /* Header 3 */ font-size: 12px}
+.math{ font-size: 10pt;}
+.hi{ /* hanging indents */ 
+    padding-left:22px; 
+    text-indent:-22px;
+}
+.main-container {
+  max-width: 1000px;
+  margin-left: auto;
+  margin-right: auto;
+}
+blockquote {  
+    padding: 10px 20px;
+    margin: 0 0 20px;
+    font-size: 12px;
+    border-left: 5px solid #eee;
+}
+code.r{ /* code */ 
+       font-size: 12px;
+}
+pre{/*preformatted text*/ 
+    font-size: 12px;
+}
+p.caption {/* figure captions */ 
+    font-size: 1.0em;
+    font-style: italic; 
+} 
+.vscroll-plot {
+    width: 800px;
+    height: 400px;
+    overflow-y: scroll;
+    overflow-x: hidden;
+}
+body {
+text-align: justify}
+</style>
+
+```{r setup, include=FALSE}
+library(bookdown)
+library(ggplot2)
+library(bookdown)
+library(ggplot2)
+library(car)
+library(effects)
+library(ggeffects)
+library(MASS)
+library(GGally)
+library(glmmTMB)
+library(ggResidpanel)
+library(emmeans)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Power in numbers {.tabset}
+You have limited time and money, which means that the number of replicate treatment and control plots is limited. Before designing and performing the study, let’s consider how the number of replicates will affect our statistical power: our ability to detect an effect of 
+warming. Based on previous studies in similar environments, we can get a sense for what the effect size might be: in other words, the true magnitude of the warming effect. We can also get a sense for how variable productivity is between plots in the same treatment, for reasons 
+outside of our control (i.e., the residual noise). Assume that the true treatment mean is 460, and the true control mean is 415 (the numbers are above ground net primary production (ANPP) - grams per square meter per year). Assume that the standard deviation of the variation between plots is 110. These numbers are based on real data synthesized in the attached paper by Lemoine et al. Start by assuming three replicates each of the treatment and control plots. Perform 1000 simulations, where each time you draw three treatment ANPP values and three control ANPP values, using the appropriate means and standard deviation, from a normal distribution. For each random draw, fit a linear model testing for a treatment effect. Save the p-value from an F-test for the treatment effect [you can extract this with Anova(model)$P[1]]. Also save the model coefficient that quantifies the difference between the treatment and control groups. [You can extract this with coef(model)]. At the end you should have 1000 p-values and 1000 coefficient values. What proportion of the p-values are less than 0.05? This is your statistical power, under this design, effect size, and residual noise. Now repeat this whole process using different numbers of replicates: 5, 10, 20, 50, 100. Plot the statistical power vs. the number of replicates. How much replication do you need to achieve a power of 0.25? This means that when there is a real treatment effect, you will detect it (only) 25% of the time.
+
+## Normal
+
+```{r, cache = TRUE}
+# Normal Distribution
+reps <- c(3, 5, 7, 10, 15, 20, 35, 50, 100)
+p    <- data.frame(matrix(NA, nrow = 1000, ncol = length(reps)))
+colnames(p)    <- paste("rep", reps, sep = "")
+diff <- data.frame(matrix(NA, nrow = 1000, ncol = length(reps)))
+colnames(diff) <- paste("rep", reps, sep = "")
+
+for (i in 1:length(reps)){
+  for (j in 1:nrow(p)) {
+    cont       <- rnorm(reps[i], mean = 415, sd = 110)
+    treat      <- rnorm(reps[i], mean = 460, sd = 110)
+    typ        <- as.factor(c(rep("cont", reps[i]), rep("treat", reps[i])))
+    grass      <- data.frame(c(cont, treat), typ)
+    colnames(grass) <- c("mu", "typ")
+    mod        <- glm(mu ~ typ, data = grass, family = gaussian(link = "identity"))
+    diff[j, i] <- coef(mod)[2]
+    p[j, i]    <- Anova(mod)$P[1]
+    }
+  }
+power <- function(x) (sum(x < 0.05)/length(x)) * 100
+pow   <- apply(p, 2, FUN = power)
+```
+
+**Answer:** The power of the experimental design with three replicates is `r pow[[1]]`%. To achieve a power of 25%, about 20 replications are needed. I did this both using a normal distribution and a gamma distribution. I wanted to try the lognormal distribution, but could not get the moment matching to work. I added a few more repetition levels.
+
+```{r,fig.cap = "Data simulated from a normal distribution. Experimental replications plotted against power received from the results of that replication. As replication increases, so does the power."}
+plot(reps, pow,
+     xlab = "Experimental replications",
+     ylab = "Power [%]",
+     main = "Power increases with replications")
+```
+
+## Gamma
+
+```{r, cache = TRUE}
+# function to approximate the shape and rate of a gamma distribution given the 
+# mean and sd of data set
+shrt <- function(mn, sd) {
+  ## shape and rate of gamma
+  list(shape=mn^2/sd^2, rate=mn/sd^2)
+}
+
+treat_moments <- shrt(415, 110)
+cont_moments  <- shrt(460, 110)
+
+reps <- c(3, 5, 7, 10, 15, 20, 35, 50, 100)
+p_gam    <- data.frame(matrix(NA, nrow = 1000, ncol = length(reps)))
+colnames(p_gam)    <- paste("rep", reps, sep = "")
+diff_gam <- data.frame(matrix(NA, nrow = 1000, ncol = length(reps)))
+colnames(diff_gam) <- paste("rep", reps, sep = "")
+
+for (i in 1:length(reps)){
+  for (j in 1:nrow(p_gam)) {
+    cont  <- rgamma(reps[i], shape = treat_moments$shape, rate = treat_moments$rate)
+    treat <- rgamma(reps[i], shape = cont_moments$shape,  rate = cont_moments$rate)
+    typ   <- as.factor(c(rep("cont", reps[i]), rep("treat", reps[i])))
+    grass <- data.frame(c(cont, treat), typ)
+    colnames(grass) <- c("mu", "typ")
+    mod   <- glm(mu ~ typ, data = grass, family = Gamma(link = "inverse"))
+    diff_gam[j, i] <- coef(mod)[2]
+    p_gam[j, i]    <- Anova(mod)$P[1]
+    }
+  }
+
+power <- function(x) (sum(x < 0.05)/length(x)) * 100
+pow_gam   <- apply(p_gam, 2, FUN = power)
+```
+
+**Answer:** The power of the experimental design with three replicates is `r pow_gam[[1]]`%. To achieve a power of 25%, about 20 replications are needed. I did this both using a normal distribution and a gamma distribution. I could not get the lognormal distribution moment matching to work. I added a few more repetition levels. 
+
+```{r, fig.cap = "Data simulated from a gamma distribution. Experimental replications plotted against power received from the results of that replication. As replication increases, so does the power."}
+plot(reps, pow_gam, 
+     xlab = "Experimental replications",
+     ylab = "Power [%]",
+     main = "Power increases with replications")
+```
+
+# Type Magnitude Error {.tabset}
+Now let’s use the simulation results to answer a different question. For situations where statistical power is low, a treatment effect will only be ‘significant’ if it is quite large, and this may cause the treatment effect to be exaggerated by chance. This has been termed Type M error, where the M stands for magnitude (see the attached paper). For each of the simulations you performed above, you saved the model coefficients. So you should have 1000 coefficients for each level of replication (3, 5, 10, 20, 50, 100). Take those coefficients, and for each level of replication calculate the mean of the coefficients using only models where p < 0.05. This is simulating the following process: if you perform the experiment, and p > 0.05, you report 'no effect’, but if p < 0.05 you report ‘significant effect’. We want to know if the reported significant effects are biased. How does the mean of the significant coefficients change as the number of replicates increases? Recall that because this is a simulation, we know the true value of the treatment difference: it’s 461 - 415 = 46. How much larger is the simulated value from the significant experiments, compared to the true value? This is the type M error. What are the potential implications for our understanding of climate change, if most warming experiments have low power?
+
+```{r}
+diff[p > 0.05] <- NA
+mu <- apply(diff, 2, FUN = mean, na.rm = TRUE)
+```
+
+**Answer:** The mean of the significant coefficients decreases as the number of replicates increases. So experiments with low power are more likely to report a larger magnitude of effect for significant results. The simulated value from the significant experiments is `r round(mu[1]/46, 1)` times larger than the true value. For climate change warming experiments with low power the magnitude of the treatment effect is more likely to be exaggerated by chance than an experiment with high power. So, climate change experiments with significant results are possibly over estimating the magnitude of treatment effects (in this case temperature effects on grass). I used the results from the normal distribution to calculate these differences.
+
+## Replications
+```{r, fig.cap = "Temperature effect difference from the control simulated from a normal distribution plotted against experimental repitition. As the number of repetitions increases (and power), the predicted effect of significant results decreases."}
+plot(reps, mu,
+     xlab = "Experimental Repetitions",
+     ylab = "Treatment difference [ANPP]",
+     main = "Magnitude decreases with replications")
+```
+
+## Power
+```{r, fig.cap = "Temperature effect difference from the control simulated from a normal distribution plotted against experimental power. As the number of repetitions increases (and power), the predicted effect of significant results decreases."}
+plot(pow, mu,
+     xlab = "Power [%]",
+     ylab = "Treatment difference [ANPP]",
+     main = "Magnitude decreases with power")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

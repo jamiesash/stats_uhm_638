@@ -1,0 +1,292 @@
+---
+title: "Homework 2: Binomial Model and R-Coding"
+author: "Jamie Ash"
+date: "due: 2021-09-08"
+output: 
+  #html_document: 
+  bookdown::html_document2:  
+    self-contained: yes
+    theme: paper #cerulean #cosmo #journal #readable
+    toc: true
+    smooth_scroll: true
+    toc_depth: 3
+    toc_float: true
+    number_sections: true
+    fig_caption: yes
+    code_folding: hide
+    # bibliography: ["geothermal.bib", "r.bib"]
+    # csl: apa-5th-edition.csl
+    # link-citations: yes
+---  
+
+<style type="text/css">  
+/* Note: CSS uses C-style commenting. */
+h1.title{font-size:22px; text-align:center;}
+h4.author{font-size:16px; text-align:center;}
+h4.date{font-size:16px; text-align:center;}
+body{ /* Normal  */ font-size: 13px}
+td {  /* Table   */ font-size: 12px}
+h1 { /* Header 1 */ font-size: 16px}
+h2 { /* Header 2 */ font-size: 14px}
+h3 { /* Header 3 */ font-size: 12px}
+.math{ font-size: 10pt;}
+.hi{ /* hanging indents */ 
+    padding-left:22px; 
+    text-indent:-22px;
+}
+blockquote {  
+    padding: 10px 20px;
+    margin: 0 0 20px;
+    font-size: 12px;
+    border-left: 5px solid #eee;
+}
+code.r{ /* code */ 
+       font-size: 12px;
+}
+pre{/*preformatted text*/ 
+    font-size: 12px;
+}
+p.caption {/* figure captions */ 
+    font-size: 1.0em;
+    font-style: italic; 
+} 
+</style>
+
+```{r setup, include= TRUE, message = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(bookdown)
+library(arm)
+library(RColorBrewer)
+```
+
+# Binomial Survival Variance
+Make a plot with one column and two rows. On the top row, make a histogram of number of survivors across all experiments. For this kind of data (discrete values), a good option is the discrete.histogram() function in the package ‘arm’. On the bottom row, make a plot of the expected probabilities for a binomial distribution with n = 10 and with p equal to the mean proportion of survivors across all experiments (you will need to calculate this mean). You can calculate the expected binomial probabilities using dbinom(). The argument “size” is how you specify the number of trials (n), and the argument “prob” is how you specify the probability of survival (p). The argument “x” is the number for which you want to find out the corresponding probability, i.e. if you set x = 1, you are asking what is the probability that there will be 1 survivor. How would you characterize the similarities and differences between the observed distribution and the predicted distribution from the binomial function? If n = 10, and p = the observed mean proportion of survivors, what is the variance of the corresponding binomial distribution (the formula is in the lecture notes, or on Wikipedia)? What is the variance in number survivors for the observed data? Give a reason why the variance in the observed data might be larger than the predicted variance from the binomial distribution.
+```{r,}
+# p = 0-1 Never greater than one
+# the variance is always less than the mean
+# np(1-p)
+# np
+
+setwd("C:\\Users\\james\\Desktop\\OCN638\\HW2\\code")
+infile <- "..\\data\\"
+shock <- read.csv(paste(infile, "heat_shock_survival.csv", sep = ""))
+
+pop        <-  10
+shock$prop <- shock$Survival/shock$n
+ave_prop   <- mean(shock$prop)
+model_binom  <- dbinom(x = 0:10, size = pop, prob = ave_prop)
+# generating a samples per experiment and finding the mean and variance
+set.seed(1000)
+for (i in 1:nrow(shock)) {
+  #temp[[i]]             <- rbinom(rep(1, nrow(shock)), size = shock$n, shock$prop)
+  shock$u[i]       <- rbinom(1, size = shock$n[i], shock$prop[i])
+  shock$sigsqr[i]  <- pop * (shock$u[i]/10) * (1 - shock$u[i]/10)
+}
+model_pois <- dpois(0:10, 1/mean(shock$u)) # moment match the mean?
+
+# mean and variance across the entire experiment
+bvar  <- pop * ave_prop * (1 - ave_prop)
+bmean <- pop * ave_prop
+# mean and variance for each individual trial
+shock$bvar  <- shock$n * shock$prop * (1 - shock$prop)
+shock$bmean <- shock$n * shock$prop
+# because the trials are independent of one another, so the variance 
+tble <- data.frame(c( bvar, mean(shock$sigsqr), mean(shock$bvar),   var(shock$Survival)), 
+                   c(bmean,      mean(shock$u), mean(shock$bmean), mean(shock$Survival)))
+colnames(tble) <- c("Variance", "Mean")
+rownames(tble) <- c("All Data", "Poiss Model", "Individual Trails", "Number Survival")
+tble 
+
+par(mfrow=c(2, 2))
+discrete.histogram(shock$Survival, 
+                   freq=FALSE, 
+                   ylim = c(0, 0.5),
+                   main = "Frequency of Survival: Observed")
+barplot(model_pois, 
+        names.arg = as.character(0:10), 
+        ylim = c(0, 0.5), 
+        space = 0,
+        main = "Propability of Survival: Poisson Model",
+        ylab = "Propability of Survival")
+barplot(model_binom, 
+        names.arg = as.character(0:10), 
+        ylim = c(0, 0.5), 
+        space = 0,
+        main = "Propability of Survival: Binomial Model",
+        ylab = "Propability of Survival")
+```
+**ANSWER:**
+
+       The mean of the observed distribution (top left) appears to be smaller than the mean of the binomial distribution (bottom left). I modeled the individual trails as binomial and the probability of survival across the entire data set as Poisson for the third figure (top right)
+
+**ANSWER:** 
+
+       The variance of the corresponding binomial distribution would be `r bvar` using the formula p * n * (1-p), with p equal to the observed mean proportion of survivors and n = 10. 
+  
+**ANSWER: **
+
+       The variance in the number of survivors for the observed data is `r round(var(shock$Survival), 3)`. If the variance is calculated for each individual trial using the formula from lecture notes i.e. p * n * (1-p), then the average variance across trials is `r round(mean(shock$bvar), 4)`. 
+
+**ANSWER:** 
+
+       The observed variance across the data set, `r bvar`, is greater than the average $\sigma^2$ of individual trials `r round(mean(shock$bvar), 4)` because the data set is better described by a Poisson Distribution rather than a Binomial Distribution. This is further emphasized by the variance and mean proportion of survivors being roughly equal, `r bvar` = `r bmean`.
+
+       The individual trails are best represented as pulls from the Binomial Distribution. To emphasize this point, I modeled the trails as pulls from a Binomial Distribution and the Probability of Survival across all trails as a Poisson Distribution (after inverting the mean) shown in the right-most figure. It was found that the predicted variance of individual trials using samples from the Binomial Distribution, `r mean(shock$sigsqr)`, is approximately equal to the observed variance of individual trials, `r round(mean(shock$bvar), 4)`.
+
+       We are able to calculate the variance of the data set using the formula from a Binomial Distribution, p * n * (1-p), even though the data are pulls from a Poisson Distribution, because the Poisson Distribution is a special case of the Binomial Distribution where variance = mean, and the number of trials increases indefinitely while $u = p*n$ remains constant. 
+
+       I'm honestly not sure about the Poisson distribution (I needed to invert the mean: Moment matching?) but most of the answer here comes from the Binomial not being a good fit to the data. 
+
+
+# Logistic Curve Characteristics
+Use curve()or geom_function() to show how the logistic curve changes as each parameter (a and b) varies from positive to negative. The logistic curve is...
+
+$$
+y = \frac{exp(a + bx)}{1 + exp(a + bx)}
+$$
+
+Make two plots, one where you vary a over a number of values, and one where you vary b over a number of values. Plot the different curves on the same plot, with different colors, and add a legend for the different colors. You may need to change the axis limits to get a good look at the curves. 
+
+```{r, fig.cap="The left figure shows a set of logistic curves with varying a parameters, and the right figure shows a logistic curve with varying b parameters."}
+logist <- function(a, b, x) {
+  exp(a+b*x)/(1+exp(a+b*x))
+  }
+
+# vector of 10 random colors from RColorbrewer because I can't decide
+qual_col_pals = brewer.pal.info[brewer.pal.info$category == 'qual',]
+col_vector = unlist(mapply(brewer.pal, qual_col_pals$maxcolors, rownames(qual_col_pals)))
+cols <- sample(col_vector, 10)
+
+par(mfrow=c(1, 2))
+for (i in seq(0, 10, by=1)) {
+  if (i == 0) curve(logist(a = i, b = 0.5, x), 
+                    from = -50, 
+                    to = 50, 
+                    col = cols[i],
+                    add = FALSE,
+                    main = "Logistic Varying a",
+                    ylab = "Logistic Range")
+  else        curve(logist(a = i, b = 0.5, x), 
+                    from = -50, 
+                    to = 50,
+                    col = cols[i],
+                    add = TRUE)
+}
+legend(5, 0.7, legend = paste("a =", seq(0, 10, by=1)),
+         col=cols, lty=1:2, cex=0.8)
+for (i in seq(-1, 1, by = 0.2)) {
+  if (i == -1) curve(logist(a = 1, b = i, x), 
+                      from = -50, 
+                      to = 50,
+                      col = cols[seq(-1, 1, by = 0.2) == i],
+                      add = FALSE,
+                      main = "Logistic Varying b",
+                      ylab = "Logistic Range")
+  else          curve(logist(a = 1, b = i, x), 
+                      from = -50, 
+                      to = 50,
+                      col = cols[seq(-1, 1, by = 0.2) == i],
+                      add = TRUE)
+  #legend(5, 0.6, legend = paste("b =", i),
+  #       col=cols[i], lty=1:2, cex=0.8)
+  }
+legend(5, 0.7, legend = paste("b =", seq(-1, 1, by = 0.2)),
+         col=cols, lty=1:2, cex=0.8)
+```
+**ANSWER** 
+
+    The parameter 'a' varies shifts the x location of the inflection point, while the parameter 'b' changes the slope of the logistic curve (but not the inflection point). 
+
+# Wolves and Type II response
+In lecture we talked about the Type II functional response... 
+$$ f(R) = \frac{aR}{1 + ahR'}$$ 
+and gave an example for wolves feeding on caribou. Use curve() or geom_function() to make some plots showing how the shape of this curve varies as you vary the handling time (h) and the attack rate (a). How do these parameters differ in how they control the shape of the curve, particularly (1) when prey density (R) is very low and (2) when prey density is very high? If you were a hungry wolf who was hunting for low-density caribou, would you rather increase your attack rate or decrease yourhandling time? Make sure you plot this with a large enough range on the x-axis to see how the curve saturates.
+
+```{r}
+# Type two functional response function
+typ2 <- function(a, h, x) {
+  (a*x)/(1+a*h*x)
+  }
+
+# vector of 10 random colors from graphics excluding grey because I can't decide
+col_vec <- colors()[grep('gr(a|e)y', grDevices::colors(), invert = T)]
+cols    <- sample(col_vec, 10)
+
+asqu <- seq(1, 10, by=1)
+hsqu <- seq(0.1, 1, by = 0.1)
+
+par(mfrow=c(1, 2))
+for (i in asqu) {
+  if (i == min(asqu)) {
+    curve(typ2(a = i, h = 0.5, x), 
+    col  = cols[i],
+    from = 0, 
+    to   = 100, 
+    ylim = c(0, 2),
+    main = "Type II Response Varying a",
+    ylab = "Type II Response Range",
+    xlab = "Caribu Density", 
+    add  = FALSE)
+    }
+  else {
+    curve(typ2(a = i, h = 0.5, x), 
+    col  = cols[i],
+    ylim = c(0, 2),
+    from = 0, 
+    to   = 100, 
+    add  = TRUE)
+    }
+  }
+legend(30, 1.5, legend = paste(paste("a =", asqu), ",", paste(" h =", hsqu), sep = ""),
+         col=cols, lty=1:2, cex=0.8)
+for (i in hsqu) {
+  if (i == min(hsqu)) {
+    curve(typ2(a = 1, h = i, x), 
+    from = 0, 
+    to   = 200,
+    col  = cols[hsqu == i],
+    add  = FALSE,
+    main = "Type II Response Varying h",
+    ylab = "Type II Response Range",
+    xlab = "Caribu Density")
+    }
+  else {
+    curve(typ2(a = 1, h = i, x), 
+    from = 0, 
+    to   = 200,
+    col  = cols[hsqu == i],
+    add  = TRUE)
+  }
+  }
+```
+**ANSWER:**
+
+    As handling time (h) decreases the saturation state of successful caribou kills increases, and likewise as handling time decreases the saturation state of caribou kills increases exponentially. So, it appears handling time has an inverse exponential effect on saturation state. As attack rate ($a$) increases, the slope at which the saturation state is reached increases but the saturation state remains constant. So $a$ has an inverse exponential effect on the slope at which the Type II response approaches its asymptote. 
+
+**ANSWER:**
+
+    With High prey density handling time has an inverse exponential effect on the saturation state and attack rate has little effect on the slope/saturation state. Under low prey density attack rate has a strong effect on the Type II response curve, while handling time has little effect on the Type II response curve. 
+
+**ANSWER:** 
+
+    If I where a hungry wolf hunting low density caribou I would prefer to increase my attack rate, as attack rate has a greater effect on success rate under low caribou density (attack rate = encounter rate). 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,268 @@
+---
+title: "HW9 - NLS models"
+author: "Jamie Ash"
+date: "10/26/2021"
+output: 
+  bookdown::html_document2:  
+    self-contained: yes
+    theme: paper #cerulean #cosmo #journal #readable
+    toc: true
+    smooth_scroll: true
+    toc_depth: 3
+    toc_float: true
+    number_sections: true
+    fig_caption: yes
+    code_folding: hide
+    # bibliography: ["geothermal.bib", "r.bib"]
+    # csl: apa-5th-edition.csl
+    # link-citations: yes
+---  
+
+<style type="text/css">  
+/* Note: CSS uses C-style commenting. */
+h1.title{font-size:22px; text-align:center;}
+h4.author{font-size:16px; text-align:center;}
+h4.date{font-size:16px; text-align:center;}
+body{ /* Normal  */ font-size: 13px}
+td {  /* Table   */ font-size: 12px}
+h1 { /* Header 1 */ font-size: 16px}
+h2 { /* Header 2 */ font-size: 14px}
+h3 { /* Header 3 */ font-size: 12px}
+.math{ font-size: 10pt;}
+.hi{ /* hanging indents */ 
+    padding-left:22px; 
+    text-indent:-22px;
+}
+.main-container {
+  max-width: 1000px;
+  margin-left: auto;
+  margin-right: auto;
+}
+blockquote {  
+    padding: 10px 20px;
+    margin: 0 0 20px;
+    font-size: 12px;
+    border-left: 5px solid #eee;
+}
+code.r{ /* code */ 
+       font-size: 12px;
+}
+pre{/*preformatted text*/ 
+    font-size: 12px;
+}
+p.caption {/* figure captions */ 
+    font-size: 1.0em;
+    font-style: italic; 
+} 
+.vscroll-plot {
+    width: 800px;
+    height: 400px;
+    overflow-y: scroll;
+    overflow-x: hidden;
+}
+body {
+text-align: justify}
+</style>
+
+```{r setup, include=FALSE}
+library(bookdown)
+library(ggplot2)
+library(bookdown)
+library(ggplot2)
+library(car)
+library(effects)
+library(ggeffects)
+library(MASS)
+library(GGally)
+library(glmmTMB)
+library(ggResidpanel)
+library(emmeans)
+library(MuMIn)
+library(qpcR)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Age is in units of years and mass is in units of kilograms. There are many different nonlinear models that one could use to model the size of an organism as a function of its age. And there are some complexities in how the data were created that I will gloss over for our purposes. Let’s keep things simple, and use model selection to ask:
+
+  - How fast does the dinosaur grow when it is young and growing quickly?
+  - Is there any evidence that this curve saturates at some asymptotic mass? Or is the curve basically exponential?
+  - If there is a sigmoidal relationship, what is the estimated maximum size?
+  - How well does a simple linear model fit relative to more realistic models?
+
+To answer these questions, you’ll need to fit the following three curves:  
+
+1) Linear model: $Mass = a + b*Age$  
+2) Exponential model: $Mass = a*exp(r*Age)$  
+3) Logistic Model: $Mass = \frac{M_{max}}{1 + exp(-r*(Age - Age_0))}$
+
+The linear model has parameters $a$ and $b$; the exponential model has parameters $a$ and $r$, and the logistic model has parameters $M_{max}$, $r$, and $Age_0$.
+
+I have written the exponential and logistic curves in a different way than what we’ve used previously in the course for GLMs. These are mathematically the same
+as what you’ve seen before, but writing them this way makes it easier to interpret in terms of the growth model. The exponential curve has an intercept (mass at age 0) at $a$, and an exponential growth rate of $r$. The logistic model also has an exponential growth rate of $r$ when $age ~ 0$, but eventually the size of the organism saturates at the asymptote $Mmax$, which is the maximum size. The logistic curve has a third parameter $Ageo$, which is the inflection point.
+
+# NLS of models {.tabset}
+Fit these three curves to the dataset psittacosaurus.csv, using nls() as described in lecture. You will need to supply start values for the parameters, which may be tricky. If you get error messages when trying to fit the model, use trial-and-error, or try plotting what the curve looks like with different parameter values to come up with reasonable guesses. For each model report the coefficient estimates and confidence intervals, and plot the fitted curves on top of the raw data. 
+
+```{r}
+# reading data from given csv
+dino <- read.csv(paste("..\\data\\", "psittacosaurus.csv", sep = ""))
+colnames(dino) <- c("mass", "age")
+# fitting three differenct models to data for comparison
+mod_lm  <- nls(mass ~ a +b * age,   data = dino, start = list(a = 1, b = 0))
+mod_exp <- nls(mass ~ a*exp(r*age), data = dino, start = list(a = 1, r = 0.3)) 
+mod_log <- nls(mass ~ mmax / (1 + exp(-r*(age-age0))), 
+               data = dino, 
+               start = list(mmax = 30, r = 1, age0 = 0))
+```
+
+**Answer:** I found the model parameters and the confidence intervals of the coefficients using the nls() function and the confit function. The results are displayed in the tabulated tables below. Then I plotted the predicted y values from each model over the raw data (it's a bit messy). 
+
+## Confidence intervals and coefficents {.tabset}
+
+### Linear
+```{r, message = FALSE}
+# getting confidence intervals for coefficients
+summary(mod_lm)
+round(confint(mod_lm), 2)
+```
+
+### Exponential
+```{r, message = FALSE}
+summary(mod_exp)
+round(confint(mod_exp), 2)
+```
+
+### Logrithmic
+```{r, message = FALSE}
+summary(mod_log)
+round(confint(mod_log), 2)
+```
+
+## Plotting predicted curves
+```{r, fig.cap = "Scatter plot of the age and mass data for the dinosaur Psittacosaurus lujiatunensis. Overlaid are the different predicted age values for three separate model: linear (red), exponential (green), and logarithmic (blue)."}
+# predicting y values to plot
+y_lm  <- predict(mod_lm)
+y_exp <- predict(mod_exp)
+y_log <- predict(mod_log)
+# plotting fitted curves over data
+plot(dino$age, dino$mass, xlab = "Age [years]", ylab = "Mass [kg]")
+points(dino$age, y_lm, col = "red")
+points(dino$age, y_exp, col = "green")
+points(dino$age, y_log, col = "blue")
+legend(25, 4, legend = c("lm", "exp", "log"), pch = c(1, 1, 1), col = c("red", "green", "blue"))
+title("Dinosaur growth rate models")
+```
+
+# AIC model selection
+Compare the three models using $AICc$. Which model is the best? What are the $\Delta AICc$ values and the Akaike weights for the three models? How do you interpret these results in terms of the relative support for the three models?
+  
+```{r}
+#MuMIn::AICc(mod_lm, mod_exp, mod_log)
+aicdf <- MuMIn::AICc(mod_lm, mod_exp, mod_log)
+aicdf$delta <- aicdf$AICc - min(aicdf$AICc)
+aicdf$aki <- akaike.weights(aicdf$AICc)$weights
+aicdf
+```
+
+Using AIC I find that the best model to be the logarithmic model with the lowest AIC of 176.72. The linear and exponensial models are much worse, with a delta AIC of `r round(aicdf$delta[1], 2)` and `r round(aicdf$delta[2], 2)` respectively. The Akaike wieghts are given in the table above. So, according to information theory, the probability that the log model is the best is nearly 100%, given the three available models. 
+
+# Interperet coefficients {.tabset}
+What is the estimated exponential growth rate ($r$) for the exponential and logistic models? What is the confidence interval on this parameter for the two models? For exponential growth, the doubling time is $log(2)/r$. How long does it take the dinosaur to double in size, based on the two models?
+```{r, message = FALSE}
+growth <- function(r) log(2)/r
+
+suma <- summary(mod_exp)
+r    <- suma$parameters["r",1]
+upe  <- growth(confint(mod_exp)["r", "2.5%"])
+mide <- growth(r)
+lowe <- growth(confint(mod_exp)["r", "97.5%"])
+dfe  <- round(data.frame(lowe, mide, upe), 2)
+
+suma <- summary(mod_log)
+r <- suma$parameters["r",1]
+upe <- growth(confint(mod_log)["r", "2.5%"])
+midl <- growth(r)
+lowe <- growth(confint(mod_log)["r", "97.5%"])
+dfl <- round(data.frame(lowe, midl, upe), 2)
+```
+
+**Answer:** The estimated exponential growth rates ($r$) for the exponential and logistic models are `r round(mide, 2)` years and `r round(midl, 2)` years respectively. Confidence intervals are shown in the tables below. This seems like a really high value for the logarithmic curve, but then again the doubling time does not take into account that the dino's reach a max size ie. do not have indeterminate growth. Whereas with the exp() model, that does have indeterminate growth, the doubling time is much longer.
+
+## Exponential
+```{r}
+dfe
+```
+
+## Logrithmic
+```{r, message = FALSE}
+dfl
+```
+
+# Dino max size (asimptote)  
+Is there evidence that this dinosaur has a maximum size? If so, what is the estimate for that size, and what is the confidence interval around that estimate? How does the estimated maximum size compare to the largest size in the data? How much  stock do you put in the $Mmax$ estimate, given the data we have? If this estimate of $Mmax$ is true, about how big does this dinosaur get, relative to a human?
+
+```{r, message = FALSE}
+# summary of model parameters
+suma
+# confit of max size
+df<- data.frame(confint(mod_log)["mmax",1], 
+           suma$parameters["mmax", 1],
+           confint(mod_log)["mmax",2])
+colnames(df) <- c("low", "mid", "high")
+round(df, 2)
+# diffenrece in estimate and date
+mass_diff <- max(dino$mass) - suma$parameters["mmax", 1]
+```
+
+**Answer:** Yes, there is evidence that this dinosaur has a maximum size, because the log model is the best fit, and that model has a y-asymptote, $M_{max}$. The estimate for the max size size is `r round(suma$parameters["mmax", 1], 2)` kg. Confidence intervals are given in the table above. This is `r round(mass_diff, 2)` kg less than the maximum size recorded in the data set. I convert kg to pounds, because humans do not weigh kg. $M_{max} = 8.5kg = 18.7lb$, so this dinosaur is the size of a large cat on the scale of things common to humans. 
+
+# Cross-validation
+Now compare the three models using leave-one-out cross-validation. Which model is the best at predicting the data, in terms of LOOCV? What is the typical difference between the predicted values and the observed values for the best model? Does cross-validation yield the same ranking of models as AICc? 
+
+```{r}
+errors_lm = vector()
+errors_exp = vector()
+errors_log = vector()
+N <- nrow(dino)
+#the loop: N for total number of observations
+for (i in 1:N) {
+ #make a y-vector that removes observation i from the original y-vector
+ yuse = dino$mass[-i]
+ #make a x-vector that removes observation i from the original x-vector
+ xuse = dino$age[-i]
+ #make a dataframe with the new y and x vectors
+ datause = data.frame(xuse, yuse)
+ #fit the cubic polynomial model
+ mod_lm  = nls(yuse ~ a + b * xuse,   data = datause, start = list(a = 1, b = 0))
+ mod_exp = nls(yuse ~ a*exp(r*xuse),  data = datause, start = list(a = 1, r = 0.3))
+ mod_log = nls(yuse ~ mmax / (1 + exp(-r*(xuse-age0))), 
+               data = datause, 
+               start = list(mmax = 30, r = 1, age0 = 0))
+ #calculate the prediction error for the withheld observation
+ errors_lm[i] = dino$mass[i] - predict(mod_lm,  newdata = data.frame(xuse = dino$age[i]))
+ errors_exp[i] = dino$mass[i] - predict(mod_exp, newdata = data.frame(xuse = dino$age[i]))
+ errors_log[i] = dino$mass[i] - predict(mod_log, newdata = data.frame(xuse = dino$age[i]))
+ }
+#calculate the root mean squared prediction error
+df <- data.frame(sqrt(mean(errors_lm^2)), sqrt(mean(errors_exp^2)), sqrt(mean(errors_log^2)))
+colnames(df) <- c("lm_rms", "exp_rms", "log_rms")
+round(df, 2)
+```
+
+**Answer:** In terms of LOOCV, the logarithmic fit is the best model. The typical difference between the predicted values and the observed values for the log model is `r round(sqrt(mean(errors_log^2)), 2)`kg. LOOCV finds the same ranking of models as AIC does. That is, exponential is the worst, linear is in the middle, and logarithmic is the best. 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

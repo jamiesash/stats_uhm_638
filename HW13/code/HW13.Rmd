@@ -1,0 +1,314 @@
+---
+title: "Homework 13. A GLMM for survival in a heat shock experiment."
+author: "Jamie Ash"
+date: "11/24/2021"
+output: 
+  bookdown::html_document2:  
+    self-contained: yes
+    theme: paper #cerulean #cosmo #journal #readable
+    toc: true
+    smooth_scroll: true
+    toc_depth: 3
+    toc_float: true
+    number_sections: true
+    fig_caption: yes
+    code_folding: hide
+    # bibliography: ["geothermal.bib", "r.bib"]
+    # csl: apa-5th-edition.csl
+    # link-citations: yes
+---  
+
+<style type="text/css">  
+/* Note: CSS uses C-style commenting. */
+h1.title{font-size:22px; text-align:center;}
+h4.author{font-size:16px; text-align:center;}
+h4.date{font-size:16px; text-align:center;}
+body{ /* Normal  */ font-size: 13px}
+td {  /* Table   */ font-size: 12px}
+h1 { /* Header 1 */ font-size: 16px}
+h2 { /* Header 2 */ font-size: 14px}
+h3 { /* Header 3 */ font-size: 12px}
+.math{ font-size: 10pt;}
+.hi{ /* hanging indents */ 
+    padding-left:22px; 
+    text-indent:-22px;
+}
+.main-container {
+  max-width: 1000px;
+  margin-left: auto;
+  margin-right: auto;
+}
+blockquote {  
+    padding: 10px 20px;
+    margin: 0 0 20px;
+    font-size: 12px;
+    border-left: 5px solid #eee;
+}
+code.r{ /* code */ 
+       font-size: 12px;
+}
+pre{/*preformatted text*/ 
+    font-size: 12px;
+}
+p.caption {/* figure captions */ 
+    font-size: 1.0em;
+    font-style: italic; 
+} 
+.vscroll-plot {
+    width: 800px;
+    height: 400px;
+    overflow-y: scroll;
+    overflow-x: hidden;
+}
+body {
+text-align: justify}
+</style>
+
+```{r setup, include=FALSE, message = FALSE}
+library(bookdown)
+library(ggplot2)
+library(bookdown)
+library(ggplot2)
+library(car)
+library(effects)
+library(ggeffects)
+library(MASS)
+library(GGally)
+library(glmmTMB)
+library(ggResidpanel)
+library(emmeans)
+library(MuMIn)
+library(qpcR)
+library(gridExtra)
+library(grid)
+library(mgcv)
+library(sp)
+library(geoR)
+library(lme4)
+library(sjPlot)
+library(pbkrtest)
+library(lmerTest)
+library(RVAideMemoire)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+The file “heat_shock_all.csv” includes data from the silverleaf whitefly heat shock experiment that you looked at in homework 2. Each row of the dataset is an experimental replicate. In each replicate, 10 flies were subjected to a heat shock, and the number of survivors at the end is recorded in the column ‘Survival’, while the proportion of survivors is in ‘proportion’. The experiment used flies from two regions in Colombia, the Caribbean region (sea level, uniformly hot) and the Southwest region (in the Andes, more variable temperature). The researchers hypothesized that the flies from these two regions might be locally adapted to thermal conditions, leading to different heat shock tolerances. Experimental replicates were performed on males and females separately, to quantify any effect of sex on heat shock tolerance. Each replicate had 10 flies, of a single Sex. All of the flies in a replicate were derived from a single isofemale line, meaning they were all third-generation descendants from a single female. There are a total of 56 isofemale lines used in the experiment. This means these flies from the same isofemale are all highly related to each other, compared to the other flies, and the variation among isofemale lines is a measured of genetic variation in heat shock tolerance. Furthermore, the isofemales were derived from a set of 9 populations in two regions, as shown in this figure:
+
+Each population contributed between 4 and 11 isofemale lines. Clearly the data have a hierarchical structure: replicates within isofemales within populations within regions. The experiment used two different heat shock treatments. One is the ‘hardening’ treatment, where flies were acclimated to 40ºC for one hour, reduced to 25ºC for one hour, and then shocked at 45ºC for one hour. The authors call this the ‘hardening’ treatment because it allows the flies to potentially acclimate to higher temperatures before getting shocked. The authors also used a ‘base’ treatment, where flies where just shocked at 45ºC for one hour, without a pretreatment at 40ºC. The difference between the ‘base’ and ‘hardening’ treatments gives some info on the plasticity of the heat shock response, i.e. whether the preconditioning at 0ºC allows flies to acclimate to higher temperature and survive better at 45ºC.
+
+We can use these data to test the following questions:  
+1. Do males and females have different heat shock tolerance?  
+2. Do flies from different regions have different heat shock tolerance?  
+3. Do the base and hardening treatments differ, i.e., is there acclimation?  
+4. Does the acclimation effect differ between the two regions?  
+5. Does the acclimation effect differ between the two sexes?  
+6. Does the effect of sex differ between the two regions?  
+
+```{r, message = FALSE, cache = TRUE, fig.show = "hold", out.width = "50%",  warning = FALSE}
+setwd("C:\\Users\\james\\Desktop\\OCN638\\HW13\\code")
+infile <- "..\\data\\"
+shock <- read.csv(paste(infile, "heat_shock_all.csv", sep = ""))
+```
+
+# Constructing the GLMM {.tabset}
+Fit a GLMM that incorporates random effects for isofemale and population, and also includes fixed effects and interactions that test the 6 questions. We also need to account for potential overdispersion in the binomial response. The best way to do this in lme4 is with an ‘individual level random effect’. Make a new factor where each row of the dataset gets a level, like this: 
+
+mydata$replicateID = factor(1:nrow(mydata))  
+
+Using this as a random effect allows for random variation at the level of the replicate that is not accounted for by the binomial distribution. 
+
+**Answer:** I do as instructed. 
+
+```{r, message = FALSE, cache = TRUE, fig.show = "hold", out.width = "50%",  warning = FALSE}
+shock$replicateID = factor(1:nrow(shock))  
+
+shock$region     <- as.factor(shock$region)
+shock$population <- as.factor(shock$population)
+shock$isofemale  <- as.factor(shock$isofemale)
+shock$treatment  <- as.factor(shock$treatment)
+shock$sex        <- as.factor(shock$sex)
+shock$replicate  <- as.factor(shock$replicate)
+
+mod.id = glmer(Survival ~ sex + sex:region  + region + treatment + 
+                 treatment:region + treatment:sex + (1|isofemale) + 
+                 (1|population) + (1|replicateID), 
+               data = shock, family = poisson)
+
+```
+
+# Updating the GLMM {.tabset}
+Fit this whole model, and then use likelihood ratio tests to see which of the interactions is significant (LRTs tend to be anti-conservative for fixed effects, but this model has a lot of data, and doing a parametric bootstrap would take a long time with this model). Drop the non-significant interactions, which will allow you to test and interpret the main effects more clearly. Now use LRTs to test the significance of the remaining fixed effects in the model.   
+
+**Answer:** I fit the model below and perfomred LRT on each interaction by comparing the full model to a model without the interaction term. I founbd that the `treatment:sex` interaction was not significant, so I droped it from the model. I found that `sex:region` is almost significant, so I kept it in the model. I then find all terms to be significant exxept `regionSouthwest` in model summary.
+
+```{r, message = FALSE, cache = TRUE, fig.show = "hold", out.width = "50%",  warning = FALSE}
+
+mod.treat.sex = glmer(Survival ~ sex + sex:region  + region + treatment + 
+                 treatment:region +(1|isofemale) + 
+                 (1|population) + (1|replicateID), 
+               data = shock, 
+               family = poisson)
+
+mod.treat.reg = glmer(Survival ~ sex + sex:region  + region + treatment + 
+                        treatment:sex + (1|isofemale) + (1|population) + 
+                        (1|replicateID), 
+               data = shock, 
+               family = poisson)
+
+mod.sex.reg = glmer(Survival ~ sex  + region + treatment + treatment:region + 
+                      treatment:sex + (1|isofemale) + 
+                 (1|population) + (1|replicateID), 
+               data = shock, 
+               family = poisson)
+
+mod.null = glmer(Survival ~ 1 + (1|isofemale) + (1|population) + (1|replicateID), 
+               data = shock, family = poisson)
+```
+
+## treatment:sex
+```{r,  message = FALSE, cache = TRUE, fig.show = "hold", out.width = "50%",  warning = FALSE}
+anova(mod.id, mod.treat.sex, ddf = "Kenward-Roger")
+```
+
+## treatment:region
+```{r, message = FALSE, cache = TRUE, fig.show = "hold", out.width = "50%",  warning = FALSE}
+anova(mod.id, mod.treat.reg, ddf = "Kenward-Roger")
+```
+
+## sex:region
+```{r, message = FALSE, cache = TRUE, fig.show = "hold", out.width = "50%",  warning = FALSE}
+anova(mod.id, mod.sex.reg, ddf = "Kenward-Roger")
+```
+
+## Summary Updated Model
+```{r}
+mod.id = glmer(Survival ~ sex + region + treatment + 
+                 sex:region  + treatment:region + (1|isofemale) + (1|population) + 
+                 (1|replicateID), 
+               data = shock, family = poisson)
+
+summary(mod.id)
+anova(mod.id)
+```
+
+# Plotting and Interpreting the GLMM {.tabset}
+Plot the fitted fixed effects. How do you interpret these results, in light of the 6 questions listed above?  
+
+**Answer:** Below I have plotted the effects of the model seperated by interaction termas and non-interaction terms. For the interaction between sex and treatment type, it does appear that males and females have different heat shock tolerence. Similarly it appears that region and treatment (hardening) has an effect on survival response. The interaction between `treatment:region` and `sex:region` is significant, but it does not appear (in the plot) to be very strong. 
+
+## Interaction Plots
+```{r, message = FALSE, cache = TRUE, fig.show = "hold", out.width = "50%",  warning = FALSE}
+plot(ggeffect(mod.id, terms = c("treatment", "region")))
+plot(ggeffect(mod.id, terms = c("sex", "treatment")))
+```
+
+## Effects Plots
+```{r, message = FALSE, cache = TRUE, fig.show = "hold", out.width = "50%",  warning = FALSE}
+plot(ggeffect(mod.id, terms = c("sex")))
+plot(ggeffect(mod.id, terms = c("region")))
+plot(ggeffect(mod.id, terms = c("treatment")))
+```
+
+# Variation {.tabset}
+Use the random effects estimates, and plots of those estimates, to discuss how much genetic variation there is among populations, and among isofemales within populations, and how much extra (overdispersed) variation there is among replicates. Plotting the individual-level random effect for replicate is not advised; there are too many levels for the function. Think about the relative magnitude of the fixed and random effects. How does the random variation across groups compare to the size of the fixed effect differences?
+
+**Answer:** The variance and standard deviation of the populations is 0.14 and 0.38 respectivley. That's `r exp(0.1486)`  and `r exp(0.3855)` on a normal scale. Isofemales within populations show a variance and standard deviation of 0.14 and 0.37 respectivly. That's `r round(exp(c(0.1383, 0.3719)), 2)` on a normal scale. The overdespersion peramiter is 0.821 which is close to 1.00, so the model acounts for the overdesperion well. The $r^2$ values are 0.21 and 0.63, for the across gorups and fixed effects respectivly.  So the variation across group explaines 83% of the total vartiation and the variation across the fixed effects explains 59% of the variation. 
+
+## Model Summary
+```{r, message = FALSE, cache = TRUE, fig.show = "hold", out.width = "50%",  warning = FALSE}
+summary(mod.id)
+```
+
+## Overdipersion and R2
+```{r, message = FALSE, cache = TRUE, fig.show = "hold", out.width = "50%",  warning = FALSE}
+overdisp.glmer(mod.id)
+r.squaredGLMM(mod.id)
+#find a away to plot replicate ID
+```
+
+## Randoim Effects 
+```{r, message = FALSE, cache = TRUE, fig.show = "hold", out.width = "50%",  warning = FALSE}
+plot_model(mod.id, type = 're')[[2]]
+plot_model(mod.id, type = 're')[[3]]
+```
+
+# Including an interaction {.tabset}  
+The authors were interested in another question as well: Does acclimation to high temperature (i.e., the treatment effect) exhibit genetic variation among isofemale lines? To test this, you need to allow treatment to vary by isofemale. In other words, you need to include a fixed*random interaction. Put this in the model, and use a likelihood ratio test to see if it is important. Use a plot to visualize how the treatment effect varies by isofemale. Does the genetic variation seem substantial? What is the correlation between the random Intercept and random treatment effect among isofemales? Can you explain what this correlation implies? Does including the treatment-by-isofemale interaction change the results for the fixed effects in the model? If so, how?
+
+**Answer:** The effects of genetic variation among isofemale lines on the acclimation to high temperature appears to be highely significant (p = 1.636e-06). The variation appears to range from 1 to 5 on a log scale. This is substantial variation. The correlation between random Intercept and random treatment effect is -0.80, which is pretty high. They could be highely correlated because I did not center the predictor variables. The further from 0 the variables are the greater the correlation between the intercept and slope (response vs. predictor) there is likely to be. I can't seem to get the anova function to spit out p-values for GLMM's (this is probably purposeful) and I do not want to test each predictor using the full vs restricted model. For the summary output: Generaly the p-values decrease for the model with the interaction term included. This causes the intercept term to go from marginaly significant (p = 0.054) to significant (p = 0.037). 
+
+```{r, message = FALSE, cache = TRUE, fig.show = "hold", out.width = "50%",  warning = FALSE}
+mod.no.int = glmer(Survival ~ sex + region + treatment + sex:region  +
+                     treatment:region + (1|isofemale) + (1|population) + 
+                     (1|replicateID), 
+               data = shock, 
+               family = poisson)
+
+mod.int = glmer(Survival ~ sex + region + treatment + sex:region + 
+                  treatment:region + (1+treatment|isofemale) + (1|population) + 
+                  (1|replicateID), 
+               data = shock, 
+               family = poisson)
+```
+
+## Restricted model vs interaction Model
+```{r, message = FALSE, cache = TRUE, fig.show = "hold", out.width = "50%",  warning = FALSE}
+anova(mod.int, mod.no.int)
+```
+
+## Summary model interaction
+```{r, message = FALSE, cache = TRUE, fig.show = "hold", out.width = "50%",  warning = FALSE}
+summary(mod.int)
+anova(mod.int, ddf = "Kenward-Roger")
+```
+
+## Summary model interaction
+```{r, message = FALSE, cache = TRUE, fig.show = "hold", out.width = "50%",  warning = FALSE}
+summary(mod.no.int)
+anova(mod.int, ddf = "Kenward-Roger")
+```
+
+## Plotted Effects
+```{r, message = FALSE, cache = TRUE, fig.show = "hold", out.width = "50%",  warning = FALSE}
+plot_model(mod.int, type = 're')[[2]]
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

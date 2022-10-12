@@ -1,0 +1,236 @@
+---
+title: "Homework 7: Contrasts"
+author: "Jamie Ash"
+date: "due: 2021-10-11"
+output: 
+  #html_document: 
+  bookdown::html_document2:  
+    self-contained: yes
+    theme: paper #cerulean #cosmo #journal #readable
+    toc: true
+    smooth_scroll: true
+    toc_depth: 3
+    toc_float: true
+    number_sections: true
+    fig_caption: yes
+    code_folding: hide
+    # bibliography: ["geothermal.bib", "r.bib"]
+    # csl: apa-5th-edition.csl
+    # link-citations: yes
+---  
+
+<style type="text/css">  
+/* Note: CSS uses C-style commenting. */
+h1.title{font-size:22px; text-align:center;}
+h4.author{font-size:16px; text-align:center;}
+h4.date{font-size:16px; text-align:center;}
+body{ /* Normal  */ font-size: 13px}
+td {  /* Table   */ font-size: 12px}
+h1 { /* Header 1 */ font-size: 16px}
+h2 { /* Header 2 */ font-size: 14px}
+h3 { /* Header 3 */ font-size: 12px}
+.math{ font-size: 10pt;}
+.hi{ /* hanging indents */ 
+    padding-left:22px; 
+    text-indent:-22px;
+}
+.main-container {
+  max-width: 1000px;
+  margin-left: auto;
+  margin-right: auto;
+}
+blockquote {  
+    padding: 10px 20px;
+    margin: 0 0 20px;
+    font-size: 12px;
+    border-left: 5px solid #eee;
+}
+code.r{ /* code */ 
+       font-size: 12px;
+}
+pre{/*preformatted text*/ 
+    font-size: 12px;
+}
+p.caption {/* figure captions */ 
+    font-size: 1.0em;
+    font-style: italic; 
+} 
+.vscroll-plot {
+    width: 800px;
+    height: 400px;
+    overflow-y: scroll;
+    overflow-x: hidden;
+}
+body {
+text-align: justify}
+</style>
+
+```{r setup, include=FALSE}
+library(bookdown)
+library(ggplot2)
+library(bookdown)
+library(ggplot2)
+library(car)
+library(effects)
+library(ggeffects)
+library(MASS)
+library(GGally)
+library(glmmTMB)
+library(ggResidpanel)
+library(emmeans)
+knitr::opts_chunk$set(echo = TRUE)
+setwd("C:\\Users\\james\\Desktop\\OCN638\\HW7\\code")
+```
+
+```{r}
+infile <- "..\\data\\"
+meso <- read.csv(paste(infile, "leibold_mesocosm_data_subset.csv", sep = ""))
+```
+
+# Linear model Nutrients and Foodweb {.tabset}
+Create a linear model that tests whether richness is explained by nutrient level and/or food web 
+treatment, and whether the effect of food web treatment differs between nutrient levels, while 
+including block as a covariate. Why is including block as a covariate important? Use residual plots 
+to decide whether it is better to model Chao-1 richness as normally or lognormally distributed. 
+Report marginal F-tests on the model terms, and plot the fitted effects. What is your interpretation 
+of these results
+
+**Answer:** The block co-variate captures any variation in the data that is not explained by the predictors. If Block is significant, or produces large differences in mean values, then something is up. After producing residual plots for the lognormal and normal distribution, and performing an AIC analysis I found that the two produced relatively similar results, 240.2 (normal) and 240.8 (lognormal). I decided to go with the lognormal distribution because the domain of Species Richness is $0$ to $Inf$ (same as lognormal), but a normal distribution's domain is $-Inf$ to $Inf$. I performed an Anova on the lognormal model and found nutrient level and food wed type to have a significant effect on species richness. I plotted the effects of the lognormal model. I ended up using a glm with a gaussian family and log link function. I'm not sure if this is equivalent to a creating a model where the species richness is a pull from a lognormal distribution. I think it is, so that's what I went with.
+
+```{r}
+mod_log <- glm(Phyto_Chao1 ~ NutrientLevel + FoodWeb + FoodWeb:NutrientLevel + Block,
+          data = meso, family = gaussian(link = "log"))
+
+mod_norm <- glm(Phyto_Chao1 ~ NutrientLevel + FoodWeb + FoodWeb:NutrientLevel + Block,
+          data = meso, family = gaussian(link = "identity"))
+#mod3 <- glm(log(Phyto_Chao1) ~ NutrientLevel + FoodWeb + FoodWeb:NutrientLevel + Block,
+#          data = meso, family = gaussian(link = "identity"))
+```
+
+## Model Selection Anova Results
+```{r}
+AIC(mod_norm, mod_log)
+Anova(mod_log, test = "F")
+```
+
+## Plotted Model Effect
+```{r, out.width = "60%"}
+plot(ggeffect(mod_log),  add = TRUE)$FoodWeb +
+   labs(x = "Foodweb Type", 
+        y = "Species Richness", 
+        title = "Predicted mean species richness of foodweb type")
+plot(ggeffect(mod_log),  add = TRUE)$NutrientLevel +
+  labs(x = "Nutrient Level", 
+       y = "Species Richness", 
+       title = "Predicted mean species richness of nutrient treatment")
+```
+
+## Residuals Normal
+```{r}
+resid_panel(mod_norm)
+```
+
+## Residuals Lognormal 
+```{r}
+resid_panel(mod_log)
+```
+
+# Contrasts a priori {.tabset}
+Now we will use contrasts to test some hypotheses, and we will imagine that we formulated these 
+hypotheses a priori (as opposed to formulating them after we looked at the data). We would like to 
+know specifically whether the grazer treatment (G) has greater richness than the algae treatment 
+(A), and whether the effect of grazers differs between high and low nutrient levels (we think the 
+effect of grazers on coexistence may be greater at high nutrient loading). 
+```{r}
+G    <- exp(2.87)
+A    <- exp(2.42)
+```
+
+**Answer:** I found that the grazer treatment (G) has a greater richness than the algae treatment (A), by positive `r round(G-A, 1)`%. I also found that the effect of grazers is significant between high and low nutrient levels, differing by `r round(exp(0.164),2)`%. I tried doing this many different ways like using the pairs function and creating a unique column of treatments to input in the emmeans function. I receive the message "NOTE: Results may be misleading due to involvement in interactions", and $Inf$ degrees of freedom. Either I'm doing something wrong, or it's fine, or it's because the experimental design does not have a true control (I think, I haven't read the paper in a while). 
+
+## Results
+```{r, }
+meso$FoodWeb   <- as.factor((meso$FoodWeb))
+meso$NutrientLevel <- as.factor((meso$NutrientLevel))
+
+emmeans(mod_log, "FoodWeb",  adjust = "none")
+contrast(emmeans(mod_log, specs = ~ NutrientLevel + FoodWeb,  adjust = "none"), 
+         method = list("GH - GL" = c(0, 0, 1, -1, 0, 0)))
+```
+
+## Contrast Plots
+```{r, out.width = "75%"}
+trt_cntr <- emmeans(mod_log, 
+                    specs = trt.vs.ctrl ~ NutrientLevel + FoodWeb, 
+                    adjust = "none")
+plot(trt_cntr$contrast) +
+  labs(x = "Difference from intercept",
+       y = "Treatment Types: Grazers, Preditors, Nutrients",
+       title = "Treatment types difference from control") + 
+  theme_bw()
+```
+
+# Custom Contrasts {.tabset}
+Use emmeans to calculate the estimated marginal means of each combination of nutrient level 
+and food web treatment (i.e., H + A, H + G, H + P, L + A, L + G, L + P). Now define contrasts to 
+test (1) whether G is different from A in the H treatment, (2) whether G is different from A in the L 
+treatment, and (3) whether G is different from A, averaging over the L and H treatments. Finally, (4) define an interaction 
+contrast that tests whether the difference between G and A is itself different between L and H 
+treatments. I.e., is (G – A) for the high nutrient treatments greater or smaller than (G – A) for the 
+low nutrient treatments? Hint: for the interaction contrast you are essentially taking contrast #2 and 
+subtracting it from contrast #1, in order to test whether the two contrasts are the same, which 
+means that the difference between them is zero
+
+**Answer:** I plotted the estimated marginal means by creating a column with the unique treatment combinations so that ggeffects would put it all in one figure. I then used contrast to test if G is different from A in the H treatment (it is $p = 0.03$). I found G is different from A in the L treatment ($p = 0.012$), and I found G is different from A, averaging over the L and H treatments (p = 0.0012). Lastly, I found the difference between G and A is itself *not* different between L and H treatments (p = 0.1754). I chose not to adjust the p values, so it is expected that 5% of the 4 tests will result in false positives or `r 4*0.05` false positive tests. I found 3 of the 4 to give significant results so that means `r round(0.2/3*100, 2)` of the results are likely false positives. I found that the different treatment types in contrast function i.e.`specs = ~ NutrientLevel + FoodWeb` were in the same order as the levels of unique treatments i.e. `levels(meso$treatments)`, where the `treatments` column in the `meso` data frame is the column I created of unique treatment types. So I used the order of `levels(meso$treatment)` to arrange my vector of 0 and 1's in the contrast function.
+
+## Marginal Means
+```{r}
+meso$treatment <- paste(meso$FoodWeb, meso$NutrientLevel, sep = "")
+meso$treatment <- as.factor(meso$treatment)
+mod_trt <- glm(Phyto_Chao1 ~ treatment + Block,
+          data = meso, family = gaussian(link = "log"))
+plot(ggeffect(mod_trt),  add = TRUE)$treatment +
+  labs(x = "Treatment Types: Grazers, Preditors, Nutrients",
+       y = "Species Richness [%]",
+       title ="Mean Species Richenss of Treatment Types")
+```
+
+## Contrast Results
+```{r}
+#levels(meso$treatment)
+#levels(meso$FoodWeb)
+
+contrast(emmeans(mod_log, specs = ~ NutrientLevel + FoodWeb,  adjust = "none"), 
+         method = list("AH - GH" = c(1, 0, -1, 0, 0, 0)))
+
+contrast(emmeans(mod_log, specs = ~ NutrientLevel + FoodWeb,  adjust = "none"), 
+         method = list("AL - GL" = c(0, 1, 0, -1, 0, 0)))
+
+#contrast(emmeans(mod_log, specs = ~ NutrientLevel + FoodWeb,  adjust = "none"), 
+#         method = list("A - G" = c(1, 1, -1, -1, 0, 0)))
+
+contrast(emmeans(mod_log, specs = ~ FoodWeb,  adjust = "none"), 
+         method = list("A - G" = c(1, -1, 0)))
+
+contrast(emmeans(mod_log, specs = ~ NutrientLevel + FoodWeb,  adjust = "none"), 
+         method = list("AH:AL - GH:GL" = c(1, -1, 1, -1, 0, 0)))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

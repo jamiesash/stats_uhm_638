@@ -1,0 +1,405 @@
+---
+title: "HW12 - Mixed Models"
+author: "Jamie Ash"
+date: "11/17/2021"
+output: 
+  bookdown::html_document2:  
+    self-contained: yes
+    theme: paper #cerulean #cosmo #journal #readable
+    toc: true
+    smooth_scroll: true
+    toc_depth: 3
+    toc_float: true
+    number_sections: true
+    fig_caption: yes
+    code_folding: hide
+    # bibliography: ["geothermal.bib", "r.bib"]
+    # csl: apa-5th-edition.csl
+    # link-citations: yes
+---  
+
+<style type="text/css">  
+/* Note: CSS uses C-style commenting. */
+h1.title{font-size:22px; text-align:center;}
+h4.author{font-size:16px; text-align:center;}
+h4.date{font-size:16px; text-align:center;}
+body{ /* Normal  */ font-size: 13px}
+td {  /* Table   */ font-size: 12px}
+h1 { /* Header 1 */ font-size: 16px}
+h2 { /* Header 2 */ font-size: 14px}
+h3 { /* Header 3 */ font-size: 12px}
+.math{ font-size: 10pt;}
+.hi{ /* hanging indents */ 
+    padding-left:22px; 
+    text-indent:-22px;
+}
+.main-container {
+  max-width: 1000px;
+  margin-left: auto;
+  margin-right: auto;
+}
+blockquote {  
+    padding: 10px 20px;
+    margin: 0 0 20px;
+    font-size: 12px;
+    border-left: 5px solid #eee;
+}
+code.r{ /* code */ 
+       font-size: 12px;
+}
+pre{/*preformatted text*/ 
+    font-size: 12px;
+}
+p.caption {/* figure captions */ 
+    font-size: 1.0em;
+    font-style: italic; 
+} 
+.vscroll-plot {
+    width: 800px;
+    height: 400px;
+    overflow-y: scroll;
+    overflow-x: hidden;
+}
+body {
+text-align: justify}
+</style>
+
+```{r setup, include=FALSE, message = FALSE}
+library(bookdown)
+library(ggplot2)
+library(bookdown)
+library(ggplot2)
+library(car)
+library(effects)
+library(ggeffects)
+library(MASS)
+library(GGally)
+library(glmmTMB)
+library(ggResidpanel)
+library(emmeans)
+library(MuMIn)
+library(qpcR)
+library(gridExtra)
+library(grid)
+library(mgcv)
+library(sp)
+library(geoR)
+library(lme4)
+library(sjPlot)
+library(pbkrtest)
+library(lmerTest)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This assignment will use some data from the attached paper by Cabral et al. The authors looked at biogeographic and environmental variables that predict the species richness of vascular plants on oceanic islands. Asking what predicts species richness on oceanic islands is a classic question; the more novel angle of the authors was to focus on the fact that islands often come in archipelagos, and there are likely important processes that operate at the archipelago scale, in addition to the island scale. We’ll use this idea as an example for using mixed models. 
+
+The authors compiled a database of many variables, which I’ve simplified for this exercise. The file ‘cabral_island_data.csv’ contains these variables measured at the island scale: species richness (‘Species’), island area (km2), maximum elevation (meters), and mean temperature. The file ‘cabral_arch_data.csv’ contains these variables measured at the archipelago scale: age of the oldset island (millions of years), number of islands in the archipelago, distance of the archipelago from the nearest continent (km). 
+
+All of these predictors could be important for species diversity on islands, and the point of the analysis is to figure out which ones actually have support, using a comparative approach. We will focus on island-level richness (the authors also look at between-island beta diversity and whole-archipelago gamma diversity). Island area is a proxy for environmental heterogeneity, and also affects the target size for colonists; maximum elevation is also a proxy for heterogeneity; mean temperature may or may not be important, depending on how you think the latitudinal diversity gradient arises; age of the oldest island determines time for colonization and time for diversification; number of islands in the archipelago could determine the total target size for colonization; and distance to the mainland will affect the supply of propagules. 
+
+```{r data, cache = TRUE}
+# reading data from given csv: Archepelegio Data
+arch             <- read.csv(paste("..\\data\\", "cabral_arch_data.csv", sep = ""))
+colnames(arch)   <- c("row", "archipelago", "island", "distance", "age")
+arch$archipelago <- as.factor(arch$archipelago)
+arch$island      <- as.numeric(arch$island)
+arch             <- arch[, !names(arch) == "row"]
+
+
+# reading data from given csv: Island data
+isle             <- read.csv(paste("..\\data\\", "cabral_island_data.csv", sep = ""))
+colnames(isle)   <- c("row", "archipelago", "species", "area", "elev", "temp")
+isle$archipelago <- as.factor(isle$archipelago)
+isle$elev        <- as.numeric(isle$elev)
+isle             <- isle[, !names(isle) == "row"]
+
+# Merging the two data frames
+daislands <- merge(arch, isle, by = c("archipelago"))
+```
+
+# Only archipelago {.tabset}
+To start, let’s consider that the data are naturally organized into groups(archipelagoes), and we should account for this structure (non-independence) in the model. In addition, some of the predictors are defined at the scale of the archipelago, which means we need an archipelago random effect in order to not pseudoreplicate when testing those predictors. Make a model with species richness as the response, and with a random effect for Archipelago. Species richness could be modeled as discrete count data (e.g., a negative binomial distribution), but we’ll cover GLMMs later; for now you can use log(Richness+1) to get a pretty normal looking response. What proportion of the variation in species richness occurs at the archipelago scale, and what proportion occurs within archipelagoes? Which archipelagoes are particularly diverse, and which are depauperate?
+
+**Answer:** The variation in species richness at the archipelego scale is 0.64 (sd = 0.80), while the variation in species richness at the island scale is 0.82 (sd = 0.90). So the proportion of species richness atributed to the archipelego scale is `r round(0.64/sum(0.64, 0.82), 2)`, and the proportion of species richness variation within the archipelego scale is `r round(0.82/sum(0.64, 0.82), 2)`. I found that the Balearic Islands and the Canaries are particularly diverse, while the Phoenix Islands and the Iles Corzet are particularly depaurerate. 
+
+## Model Summary
+```{r, message = FALSE, cache = TRUE, fig.show = "hold", out.width = "50%",  warning = FALSE}
+rand.mod = lmer(log(species+1) ~ 1 + (1|archipelago), data = daislands)
+summary(rand.mod)
+arches <- ranef(rand.mod)[[1]]
+arches <- data.frame(row.names(arches), arches)
+row.names(arches) <- NULL
+colnames(arches) <- c("archipelego", "intercept")
+
+# Least anbd greates species richness
+arches[order(arches[,2]), ][1:2, ]
+arches[order(arches[,2]), ][(nrow(arches)-1):nrow(arches), ]
+```
+
+## Plotted Effects
+```{r,  message = FALSE, cache = TRUE, fig.show = "hold", out.width = "50%",  warning = FALSE}
+plot_model(rand.mod, type = "re")
+plot_model(rand.mod, type = 'diag')[[2]]
+plot_model(rand.mod, type = 'diag')[[1]]
+```
+
+# Checking predictors {.tabset}
+Now let’s think about the six predictors. Make some exploratory plots of the effect of each variable on richness, plotted at the appropriate scale. You’ll need to merge the datasets. Think about which predictors might need to be transformed for use in a linear model.
+
+**Answer:** I merged the data set and ploted everything at the archepelego scale (shown below). I decided to log transform island area, distance from the mainland, and island elevation. 
+
+```{r}
+#transforming the parameters
+daislands$area     <- log(daislands$area + 1)
+daislands$elev     <- log(daislands$elev + 1)
+daislands$distance <- log(daislands$distance + 1)
+#transforming the parameters
+#daislands$area <- sqrt(daislands$area)
+#daislands$elev <- sqrt(daislands$elev)
+```
+
+```{r, message = FALSE, cache = TRUE, fig.show = "hold", out.width = "50%",  warning = FALSE}
+#plot(daislands$archipelago, daislands$species, xlab = "Archipelago")
+plot(daislands$area, daislands$species, xlab = "Area (log)")
+plot(daislands$elev, daislands$species, xlab = "Elevation (log)")
+plot(daislands$temp, daislands$species, xlab = "Temperature")
+plot(daislands$island, daislands$species, xlab = "Number of Island")
+plot(daislands$distance, daislands$species, xlab = "Distance from Mainland")
+plot(daislands$age, daislands$species, xlab = "Archepelego age")
+```
+
+# Full model {.tabset}
+Make a mixed model that includes all the predictors. Plot fitted effects (fixed and random), plus model diagnostics. How does it look? How much variation do the predictors explain, at the two different scales in the data (island and archipelago)? Present R2 values for the two scales. Also, how much of the total variation have they explained, according to R.
+
+**Answer:** The residuals apear to be normaly destributed apart from one outlier. I dont know whats up with this outlier. The variance at the archepeliogo scale is 0.37 while the variance at the island scale is 0.25, so the proportion of explained variance is `r round(0.37/sum(0.37, 0.25), 3)` and `r round(0.25/sum(0.37, 0.25), 3)` respectivly. The $r^2$ values for full model are 0.59 and 0.834, for the island scale and archepeliago scale respectivly.  So the archepeliago scale explaines 83% of the total vartiation and the island scale explains 59% of the variation. I'm not sure why these two values do not add up to 100%. I've plotted the fitted and random effects. 
+
+## Model Summary
+```{r, message = FALSE, cache = TRUE, fig.show="hold", out.width= "50%",  warning = FALSE}
+rand.mod = lmer(log(species+1) ~ area + elev + temp + island + distance + age + (1|archipelago), data = daislands)
+summary(rand.mod)
+
+# Percent of variance for each model
+mod_nopred = lmer(log(species+1) ~ 1 + (1|archipelago), data = daislands)
+mod_pred   = lmer(log(species+1) ~ area + elev + temp + island + distance + age + (1|archipelago), data = daislands)
+
+# the archipelego level
+1 - VarCorr(mod_pred)$archipelago[1]/VarCorr(mod_nopred)$archipelago[1]
+# at the island level
+1 - (sigma(mod_pred)^2)/(sigma(mod_nopred)^2)
+
+# R^2 values
+r.squaredGLMM(rand.mod)
+```
+
+## Model Diagnostics
+```{r, message = FALSE, cache = TRUE, fig.show="hold", out.width= "50%",  warning = FALSE}
+plot_model(rand.mod, type = 'diag')[[2]]
+plot_model(rand.mod, type = 'diag')[[1]]
+```
+
+## Random Effects
+```{r}
+plot_model(rand.mod, type = 're')
+```
+
+## Fixed Effects
+```{r, message = FALSE, cache = TRUE, fig.show = "hold", out.width = "50%",  warning = FALSE}
+fixef(rand.mod)
+plot(ggeffect(rand.mod))$area
+plot(ggeffect(rand.mod))$elev
+plot(ggeffect(rand.mod))$temp
+plot(ggeffect(rand.mod))$island
+plot(ggeffect(rand.mod))$distance
+plot(ggeffect(rand.mod))$age
+
+# random.intercepts = ranef(rand.mod)$archipelago[[1]]
+#island.type = factor(tapply(daislands$age, daislands$archipelago, function(x) as.character(x[1])))
+#fixed.effects.island = fixef(rand.mod)["(Intercept)"] + fixef(rand.mod)["age"]*(island.type == "Azoers")
+#island.effects = random.intercepts + fixed.effects.island
+#plot(waterbody.effects ~ island.type, col = c('orange', 'grey'), xlab = 'waterbody type', ylab = 'model-fitted intercept')
+#curve(island.effects[1] + fixef(epamod)["logTN"]*x, from = min(crysub$logTN), 
+#      to = max(crysub$logTN), xlab = 'logTN', ylab = 'log density', ylim = c(3.5, 7.5))
+#for (i in 2:length(waterbody.effects)) {
+# curve(waterbody.effects[i] + fixef(epamod)["logTN"]*x, from = min(crysub$logTN), 
+#       to = max(crysub$logTN), col = c('orange', 'grey')[waterbody.type[i]], add = T)
+#}
+
+```
+
+# Important Predictors {.tabset}
+Use approximate F-tests as described in lecture to test the significance of the predictors. How do you interpret the results of these tests, and the effects plots, in light of hypotheses for what controls species richness in islands and archipelagos? What are the denominator degrees of freedom for each predictor? This is essentially telling you how much replication there is for that predictor, minus the number of parameters for that predictor. Do the denominator df make sense? Why or why not?
+
+**Answer** Island, age, and elevation have very little effect on the r squared value. Island and age seem to have little effect on the model when I use parametric bootstraping, but elevation does have a significant effect. Using anova, I find that island elevation, island temperature, island area, and distance from the main land have an effect on species richness. This is because models without age or number of islands are not different from the full model. I did this using botha n anova on the full model, and by performing an anova on th efull model vs the restricted model. I also compared the R2 values of all models, as well as parametric bootstraping and come to the same conclusion.   
+  Islands with greater elevation and area (mountains in particular), could have alot of climate variation allowing for many types of species to exist. Distance from mainland is a proxy for colonialization events. This effect is negative, indicating that an increase in colonialization events could lead to depaurerate. Island number and age do not seem to have any effect on species richness. It's possible that island age has a threshold value that it has overcome for all the island samples. Once an island hits a certian age, and a good number of species have settled (succesion and everything), than the islands age no longer matters. I'm not sure what units the island age is in but its minimum is `r round(min(daislands$age), 4)`. I report the denominator degrees of freedom for each predictor in the anova summary table in the DenDF column. These do amke sense. The archepeligo scale predictors have a lower degrees of freedom than the island scale predictors. 
+
+## Anova {.tabset}
+
+```{r, message = FALSE, cache = TRUE, fig.show="hold", out.width= "50%",  warning = FALSE}
+null_full   <- lmer(log(species+1) ~ area + elev + temp   + island   + distance + age + (1|archipelago), data = daislands, REML = FALSE)
+null_age    <- lmer(log(species+1) ~ area + elev + temp   + island   + distance + (1|archipelago), data = daislands, REML = FALSE) # age missing
+null_dist   <- lmer(log(species+1) ~ area + elev + temp   + island   + age + (1|archipelago), data = daislands, REML = FALSE) # distance missing
+null_island <- lmer(log(species+1) ~ area + elev + temp   + distance + age + (1|archipelago), data = daislands, REML = FALSE) # island missing
+null_temp   <- lmer(log(species+1) ~ area + elev + island + distance + age + (1|archipelago), data = daislands, REML = FALSE) # temp missing
+null_elev   <- lmer(log(species+1) ~ area + temp + island + distance + age + (1|archipelago), data = daislands, REML = FALSE) # elev missing
+null_area   <- lmer(log(species+1) ~ elev + temp + island + distance + age + (1|archipelago), data = daislands, REML = FALSE) # area missing  
+
+mod_full <- lmer(log(species+1) ~ area + elev + temp + island + distance + age + (1|archipelago), data = daislands)
+mod_age  <- lmer(log(species+1) ~ area + elev + temp + island + distance + (1|archipelago), data = daislands) # age missing
+mod_dist <- lmer(log(species+1) ~ area + elev + temp + island + age + (1|archipelago), data = daislands) # distance missing
+mod_island <- lmer(log(species+1) ~ area + elev + temp + distance + age + (1|archipelago), data = daislands) # island missing
+mod_temp <- lmer(log(species+1) ~ area + elev + island + distance + age + (1|archipelago), data = daislands) # temp missing
+mod_elev <- lmer(log(species+1) ~ area + temp + island + distance + age + (1|archipelago), data = daislands) # elev missing
+mod_area <- lmer(log(species+1) ~ elev + temp + island + distance + age + (1|archipelago), data = daislands) # area missing  
+
+#sim_null_age = simulate(null_age)
+#null.restricted = lmer(sim_null_age[[1]] ~ area + elev + temp + island + distance + (1|archipelago), data = daislands, REML = FALSE)
+```
+
+### Full Model
+```{r}
+anova(mod_full, ddf = "Kenward-Roger")
+```
+
+### Area
+```{r}
+anova(mod_full, mod_area, ddf = "Kenward-Roger")
+```
+
+### Island
+```{r}
+anova(mod_full, mod_island, ddf = "Kenward-Roger")
+```
+
+### Distance
+```{r}
+anova(mod_full, mod_dist, ddf = "Kenward-Roger")
+```
+
+### Temperature
+```{r}
+anova(mod_full, mod_temp, ddf = "Kenward-Roger")
+```
+
+### Age
+```{r}
+anova(mod_full, mod_age, ddf = "Kenward-Roger")
+```
+
+### Elevation
+```{r}
+anova(mod_full, mod_elev, ddf = "Kenward-Roger")
+```
+
+### Area
+```{r}
+anova(mod_full, mod_area, ddf = "Kenward-Roger")
+```
+
+## R2
+```{r, message = FALSE, cache = TRUE, fig.show="hold", out.width= "50%",  warning = FALSE}
+mod_nopred = lmer(log(species+1) ~ 1 + (1|archipelago), data = daislands)
+mod_pred   = lmer(log(species+1) ~ area + elev + temp + island + distance + age + (1|archipelago), data = daislands)
+
+# the archipelego level
+1 - VarCorr(mod_pred)$archipelago[1]/VarCorr(mod_nopred)$archipelago[1]
+# at the island level
+1 - (sigma(mod_pred)^2)/(sigma(mod_nopred)^2)
+
+full_r <- r.squaredGLMM(mod_full) # full model
+area_r <- r.squaredGLMM(mod_area) # area missin
+elev_r <- r.squaredGLMM(mod_elev) # elevation missing
+temp_r <- r.squaredGLMM(mod_temp) # temp mising
+island_r <- r.squaredGLMM(mod_island) # island missing
+dist_r <- r.squaredGLMM(mod_dist) # dist missing
+age_r  <- r.squaredGLMM(mod_age) # age missing
+
+df <- data.frame(
+  c("full", "age", "dist", "island", "temp", "elev", "area"), 
+  rbind(full_r, age_r, dist_r, island_r, temp_r, elev_r, area_r))
+colnames(df) = c("predictor", "R2m", "R2c")
+df
+```
+
+## Bootstraping {.tabset}
+
+### Age
+```{r, message = FALSE, cache = TRUE,  warning = FALSE}
+PBmodcomp(mod_full, mod_age)
+```
+
+### Elevation
+```{r, message = FALSE, cache = TRUE,  warning = FALSE}
+PBmodcomp(mod_full, mod_elev)
+```
+
+### Temperature
+```{r, message = FALSE, cache = TRUE,  warning = FALSE}
+PBmodcomp(mod_full, mod_temp)
+```
+
+### Distance
+```{r, message = FALSE, cache = TRUE,  warning = FALSE}
+PBmodcomp(mod_full, mod_dist)
+```
+
+### Island
+```{r, message = FALSE, cache = TRUE,  warning = FALSE}
+PBmodcomp(mod_full, mod_island)
+```
+
+### Area
+```{r, message = FALSE, cache = TRUE,  warning = FALSE}
+PBmodcomp(mod_full, mod_area)
+```
+
+# Using AICc {.tabset}
+Is the model we’ve used the best model? Often I just stick with one big model when the ratio of data to parameters is pretty good. But some people really like to find the best model, or to look at model weights, etc. Use AICc in some capacity to assess which predictors are important, what the ‘best’ model is, and how sure you are about what the best model is. The details of how you do it are up to you, as long as it seems justifiable. Remember to do REML=FALSE for comparing models.
+
+**Answer:** Models without age and island have lower AIC value sthan the full model. This is similar to the r2, bootstraping, and anova results. I didn't compare all possible combinations of predictors. For large data sets, I like the idea of crafting the predictors around the hypothesis and worrying less about what makes best model. 
+
+## Using AICc
+```{r}
+df <- data.frame(c("full", "age", "dist", "island", "temp", "elev", "area"),
+           c(AICc(mod_full), AICc(mod_age), AICc(mod_dist), AICc(mod_island), 
+             AICc(mod_temp), AICc(mod_elev), AICc(mod_area)))
+colnames(df) <- c("predictor", "AICc")
+df
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

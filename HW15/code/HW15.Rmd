@@ -1,0 +1,377 @@
+---
+title: "Homework 15: Multivariant Aalysis with PCA and NMDS"
+author: "Jamie Ash"
+date: "12/08/2021"
+output: 
+  bookdown::html_document2:  
+    self-contained: yes
+    theme: paper #cerulean #cosmo #journal #readable
+    toc: true
+    smooth_scroll: true
+    toc_depth: 3
+    toc_float: true
+    number_sections: true
+    fig_caption: yes
+    code_folding: hide
+    # bibliography: ["geothermal.bib", "r.bib"]
+    # csl: apa-5th-edition.csl
+    # link-citations: yes
+---  
+
+<style type="text/css">  
+/* Note: CSS uses C-style commenting. */
+h1.title{font-size:22px; text-align:center;}
+h4.author{font-size:16px; text-align:center;}
+h4.date{font-size:16px; text-align:center;}
+body{ /* Normal  */ font-size: 13px}
+td {  /* Table   */ font-size: 12px}
+h1 { /* Header 1 */ font-size: 16px}
+h2 { /* Header 2 */ font-size: 14px}
+h3 { /* Header 3 */ font-size: 12px}
+.math{ font-size: 10pt;}
+.hi{ /* hanging indents */ 
+    padding-left:22px; 
+    text-indent:-22px;
+}
+.main-container {
+  max-width: 1000px;
+  margin-left: auto;
+  margin-right: auto;
+}
+blockquote {  
+    padding: 10px 20px;
+    margin: 0 0 20px;
+    font-size: 12px;
+    border-left: 5px solid #eee;
+}
+code.r{ /* code */ 
+       font-size: 12px;
+}
+pre{/*preformatted text*/ 
+    font-size: 12px;
+}
+p.caption {/* figure captions */ 
+    font-size: 1.0em;
+    font-style: italic; 
+} 
+.vscroll-plot {
+    width: 800px;
+    height: 400px;
+    overflow-y: scroll;
+    overflow-x: hidden;
+}
+body {
+text-align: justify}
+</style>
+
+```{r setup, include=FALSE, message = FALSE}
+library(bookdown)
+library(ggplot2)
+library(bookdown)
+library(ggplot2)
+library(car)
+library(effects)
+library(ggeffects)
+library(MASS)
+library(GGally)
+library(glmmTMB)
+library(ggResidpanel)
+library(emmeans)
+library(MuMIn)
+library(qpcR)
+library(gridExtra)
+library(grid)
+library(mgcv)
+library(sp)
+library(geoR)
+library(lme4)
+library(sjPlot)
+library(pbkrtest)
+library(lmerTest)
+library(RVAideMemoire)
+library(stats)
+library(corrplot)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+The file ‘macroinverts.csv’ contains data from a survey of stream invertebrate communites in South-East Australia, as reported in the attached paper by Szöcs et al. The authors were interested primarily in effects of agriculture on the invertebrate community, particularly whether salinization of freshwater and pesticide use alter community composition. There are 60 samples in the dataset, which were taken at three different times, at a number of locations that differ in environmental characteristics. The attached file includes data on many enviromental parameters. The water characteristics are temperature (T), pH, conductivity (Cond = salinity), oxygen, phosphate, and turbidity. And the substrate characteristics are percent bedrock, boulder, cobble, pebble, gravel, sand, and clay/silt. There is also a column ‘tmax’, which records pesticide toxicity as measured with a bioassay. Finally, there are counts identified by taxonomic family (all the remaining columns in the dataset). 
+
+```{r, message = FALSE, cache = TRUE, fig.show = "hold", out.width = "25%",  warning = FALSE}
+infile <- "..\\data\\"
+invert <- read.csv(paste(infile, "macroinverts.csv", sep = ""))
+invert = na.omit(invert)
+
+# Seperating the site from the month
+site  <- substr(invert$Site_Month, 1, 2)
+month <- substr(invert$Site_Month, 3, 4)
+invert$site  <- as.factor(gsub("[[:punct:]]", "", site))
+invert$month <- as.numeric(gsub("[[:punct:]]", "", month))
+rm(month)
+invert <- invert[, 2:ncol(invert)]
+```
+
+# PCA and Biplots {.tabset}
+To start off, see how the environmental parameters covary with each other. Do a PCA on the environmental predictors. To make the results more meaningful, you’ll probably want to log- or square-root-transform some of the predictors, because some of them are highly skewed. How much variation is explained by the PC axes? Are there dominant axes of variation, or is the environmental variation more complex than that? Make a biplot to look at how the variables load onto the first two axes. Also make a biplot for the third and fourth axes. 
+
+**Answer:** I decided to transform most of the substrate types by taking the square root. I log transformed conductivity. The first four principal components explain 70.2% of the variation, while the first PC (dominant axes) explains 32.8% of the variation. With this I feel like the environmental variation is complex, and not well explained by the first few PC's alone. 
+
+```{r, message = FALSE, cache = TRUE, fig.show = "hold", out.width = "50%",  warning = FALSE}
+# I would like to seperate the site and the month
+env <- invert[, c("T","pH","Cond","oxygen", "PO4", "Turb", "Bedrock", "Boulder", 
+                  "Cobble","Pebble", "Gravel", "Sand", "Clay.silt")]
+
+```
+
+## What to transform
+```{r, message = FALSE, cache = TRUE, fig.show = "hold", out.width = "25%",  warning = FALSE}
+nam <- names(env)
+for (i in 1:length(nam)) hist(env[, nam[i]], main = nam[i])
+```
+
+## After Transformation
+```{r, message = FALSE, cache = TRUE, fig.show = "hold", out.width = "25%",  warning = FALSE}
+bady <- c("PO4", "Bedrock", "Boulder", "Cobble", "Pebble", "Gravel", "Sand")
+env[, bady] <- sqrt(env[ , bady])
+env[, "Cond"] <- log(env[, "Cond"])
+
+for (i in 1:length(nam)) hist(env[, nam[i]], main = nam[i])
+```
+                  
+## PCA 
+```{r, message = FALSE, cache = TRUE, fig.show = "hold", out.width = "50%",  warning = FALSE}
+pca = princomp(env, cor = TRUE)
+summary(pca)
+#head(pca$scores)
+```
+
+## Biplots
+```{r, message = FALSE, cache = TRUE, fig.show = "hold", out.width = "50%",  warning = FALSE}
+pca <- prcomp(env, scale = TRUE)
+scores <- data.frame(invert$month, pca$x[,1:4])
+
+qplot(x = PC1, y = PC2, data = scores, colour = factor(invert$month)) +
+  labs(title = "First two axes") + 
+  theme_bw()
+
+qplot(x = PC3, y = PC4, data=scores, colour = factor(invert$month)) +
+  labs(title = "Third and fourth axes") +
+  theme_bw()
+
+```
+
+```{r, message = FALSE, cache = TRUE, fig.show = "hold", out.width = "50%",  warning = FALSE}
+#library(klaR)
+#pca = vegan::rda(env, scale = TRUE)
+#biplot(pca, col = c('red', 'blue'), type = c("text", "points"), cex = 2)
+#vegan::ordihull(pca, invert$site, label = TRUE, col = 'green', border = 'black', 
+#         alpha = 20, cex = 0.6, draw = 'polygon')
+#biplot(pca, col = c('red', 'blue'), type = c("text", "points"), cex = 2)
+#vegan::ordihull(pca, as.factor(invert$month), label = TRUE, col = 'green', border = 'black', 
+#         alpha = 20, cex = 0.6, draw = 'polygon')
+```
+
+# NMDS {.tabset}
+Eventually you’re going to do a constrained ordination, using environmental variables to predict invertebrate community structure. But right now there are just too many predictors (and I didn’t even include all those the authors looked at). Reduce the number of variables in the environmental data to a maximum of 6. Picking variables to exclude is a judgment call, but if two variables seems pretty strongly correlated with each other, then dropping one of them makes sense. Or you can use envfit() or capscale() to drop variables that don’t seem important for community composition. It’s up to you. Now use NMDS to ordinate the invertebrate community data. Some of the families are quite rare, so drop those that occur less than 10 times. You should also transform the count data before using it to calculate dissimilarities. I’ve been using the wisconsin square root transformation in class, but it’s not the only option. Now try NMDS with 2-4 dimensions. How much does the stress change with the # of dimensions? 
+
+**Answer:** I generated a correlogram, and Gravel, Pebble and Cobble all appear to co-vary. Bedrock and boulder are positively correlated. I decided to only use Sand to represent the substrate types, because it is the most normally distributed. Gravel was close second because it is more positively correlated with the other substrate types. Clay.silt is heavily negatively correlated with the other substrate types so I drop it. Oxygen and pH negatively co-vary, so I drop Cond, and what's left are my six. The stress decreases with increasing dimensions, but I think this is usually the case. 
+
+## Covariation
+```{r, message = FALSE, cache = TRUE, fig.show = "hold", out.width = "95%",  warning = FALSE}
+M = cor(env)
+corrplot(M, method="color")
+```
+
+## Data Prep
+```{r, message = FALSE, cache = TRUE, fig.show = "hold", out.width = "95%",  warning = FALSE}
+drop   = c("Cond", "Bedrock", "Boulder", "Cobble", "Pebble", "Gravel", "Clay.silt")
+invert = invert[, !is.element(names(invert), drop)]
+env    = env[, !is.element(names(env), drop)]
+
+nam     = names(invert)
+species = invert[, 8:82]
+
+temp <- data.frame(lapply(species, FUN = sum, MARGIN = 2))
+species <- species[, which(temp > 10)]
+species = vegan::wisconsin(sqrt(species))
+
+# pcoa = capscale(species ~ 1, dist = "bray")
+#nam <- names(species)
+#for (i in 1:length(nam)) hist(species[, nam[i]], main = nam[i])
+```
+
+
+## Ugly NMDS output Please Ignore
+```{r, message = FALSE, cache = TRUE, fig.show = "hold", out.width = "95%",  warning = FALSE}
+ord  = vegan::metaMDS(species, dist = "bray", trymax = 20)
+ord2 = vegan::metaMDS(species, dist = "bray", trymax = 100, k = 2)
+ord3 = vegan::metaMDS(species, dist = "bray", trymax = 100, k = 3)
+ord4 = vegan::metaMDS(species, dist = "bray", trymax = 100, k = 4)
+```
+
+## NMDS: stress
+```{r}
+# Stress with increasing dimensions
+ord$stress
+ord2$stress
+ord3$stress
+ord4$stress
+```
+
+## NMDS: Ordination Plot
+```{r, message = FALSE, cache = TRUE, fig.show = "hold", out.width = "49%",  warning = FALSE}
+plot(ord, type = 'text')
+plot(ord2, type = 'text')
+plot(ord3, type = 'text')
+plot(ord4, type = 'text')
+
+#fit = vegan::envfit(ord ~ 1, data = env, na.rm = T)
+#vegan::ordiplot(ord, display = "sites", type = 'n', main = 'nmds 2D')
+#points(ord, col = 'grey')
+#plot(fit, col = 'red', arrow.mul = 0.7)
+```
+
+# Capsul PCA and NMDS {.tabset}
+Perform a principal coordinates analysis (with capscale), and compare the ordination to the NMDS ordination using procrustes(). Do the two methods give similar results? How much variation in community composition is explained by the first few PCoA axes? Using the subset of environmental variables you chose earlier, use envfit() to see how the environmental variables relate to the NMDS ordination axes. Plot the results. Which variables seem most strongly related to the major axes of community variation?
+
+**Answer:** By comparing the two figures in the PCoA vs NMDS tab, it appears that the analyses are relatively dis-similar. But it is difficult to choose which version is better. 49% of the variation is explained by the first few axes of the PCoA analysis. Sand and then pH seem most strongly related to the major axes of community variation, shown in the "Plotting NMDS and Env" tab. 
+
+## PCoA
+```{r, message = FALSE, cache = TRUE, fig.show = "hold", out.width = "50%",  warning = FALSE}
+pcoa = vegan::capscale(species ~ 1, dist = "bray")
+#pcoa
+test <- summary(pcoa)
+test <- test$cont
+test <- data.frame(test)[,1:6]
+sum(test[2,])
+
+data.frame(test)[,1:6]
+```
+
+## PCoA vs NMDS
+```{r, message = FALSE, cache = TRUE, fig.show = "hold", out.width = "50%",  warning = FALSE}
+proc = vegan::procrustes(pcoa, ord)
+plot(proc)
+
+proc = vegan::procrustes(ord$species, summary(pcoa)$species[,1:2])
+plot(proc, main = 'species ordination')
+```
+
+## NMDS and the Environment
+```{r, message = FALSE, cache = TRUE, fig.show = "hold", out.width = "50%",  warning = FALSE}
+names(env)[1] <- "t"
+fit = vegan::envfit(ord ~ t + pH + oxygen + PO4 + Turb + Sand, data = env, na.rm = TRUE)
+fit
+```
+
+## Plotting NMDS and Env
+```{r, message = FALSE, cache = TRUE, fig.show = "hold", out.width = "50%",  warning = FALSE}
+vegan::ordiplot(ord, display = "sites", type = 'n', main = 'nmds 2D')
+points(ord, col = 'grey')
+plot(fit, col = 'red', arrow.mul = 0.7)
+```
+
+# Constrained Ordination: PCoA {.tabset}
+Now use constrained ordination (canonical analysis of principal coordinates) to more directly look for axes of community variation that are explained by the environment. Plot the site scores and the biplot arrows for the environmental axes. How are the environmental variables aligned along the most important axes? How much variation in community composition is explained by those axes? Test whether the axes are ‘significant’, using the permutation tests provided by the anova() function. Use a plot of the species scores, in combination with the environmental vectors, to see which invertebrate families respond most strongly to the different environmental axes. 
+
+**Answer:** Using a permutation test, I found only the first axes to be significant. By performing a marginal test, I found that sand and temperature were both significant. I plotted species scores and site scores to see which invertebrate families respond most strongly to the different environmental axes.
+
+# CAP Summary and anova
+```{r, message = FALSE, cache = TRUE, fig.show = "hold", out.width = "50%",  warning = FALSE}
+cap = vegan::capscale(species ~ t + pH + oxygen + PO4 + Turb + Sand, data = env, dist = "bray")
+#summary(cap)$cont
+#summary(cap)$biplot
+cap
+anova(cap)
+anova(cap, by = "axis")
+anova(cap, by = "margin")
+```
+
+## Plotting site and species scores
+```{r, message = FALSE, cache = TRUE, fig.show = "hold", out.width = "50%",  warning = FALSE}
+plot(cap, display = "sites", type = 'n', main = "Site scores")
+points(cap, display = "sites", col = 'grey')
+text(cap, display = 'bp', col = 'blue')
+
+
+plot(cap, display = "species", type = 'n', main = "Species scores")
+points(cap, display = "species", col = 'grey')
+text(cap, display = 'bp', col = 'blue')
+```
+
+# PERMANOVA 
+You’ve been looking at overall variation in community composition, but the authors of the study were most interested in the effects of salinity and pesticides. Use permanova (i.e., adonis()) to test the effect of these predictors on community composition. Are there significant effects? How much variation is explained? Is there an interaction between the two predictors? Would you consider these to be strong environmental impacts, at least in terms of changing the structure of the stream invertebrate communities
+
+**Answer:** It appears that conductivity, and the interaction between conductivity and PO4 does have a significant effect. PO4 alone does not have a significant effect  on community composition. About 16.5% of the variation (total sum of squares) is explained by the two predictors. Yes, it appears there is a significant interaction between the two predictors. 
+
+## Re-processing data 
+```{r, message = FALSE, cache = TRUE, fig.show = "hold", out.width = "50%",  warning = FALSE}
+invert <- read.csv(paste(infile, "macroinverts.csv", sep = ""))
+invert = na.omit(invert)
+
+# Seperating the site from the month
+site  <- substr(invert$Site_Month, 1, 2)
+month <- substr(invert$Site_Month, 3, 4)
+invert$site  <- as.factor(gsub("[[:punct:]]", "", site))
+invert$month <- as.numeric(gsub("[[:punct:]]", "", month))
+rm(month)
+invert <- invert[, 2:ncol(invert)]
+
+env <- invert[, c("T","pH","Cond","oxygen", "PO4", "Turb", "Bedrock", "Boulder", 
+                  "Cobble","Pebble", "Gravel", "Sand", "Clay.silt")]
+                  bady <- c("PO4", "Bedrock", "Boulder", "Cobble", "Pebble", "Gravel", "Sand")
+env[, bady] <- sqrt(env[ , bady])
+env[, "Cond"] <- log(env[, "Cond"])
+
+drop   = c("Bedrock", "Boulder", "Cobble", "Pebble", "Gravel", "Clay.silt")
+invert = invert[, !is.element(names(invert), drop)]
+env    = env[, !is.element(names(env), drop)]
+```
+
+# PERMANOVA
+```{r, message = FALSE, cache = TRUE, fig.show = "hold", out.width = "50%",  warning = FALSE}
+mod_int   <- vegan::adonis2(species ~ PO4 * Cond , data = env, dist = 'bray', by = 'margin')
+mod_noint <- vegan::adonis2(species ~ PO4 + Cond , data = env, dist = 'bray', by = 'margin')
+
+mod_int
+mod_noint
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

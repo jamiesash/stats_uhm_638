@@ -1,0 +1,339 @@
+---
+title: "Homework 5: Binomial GLMs"
+author: "Jamie Ash"
+date: "due: 2021-09-29"
+root.dir: "C:\\Users\\james\\Desktop\\OCN638\\HW4\\code"
+output: 
+  #html_document: 
+  bookdown::html_document2:  
+    self-contained: yes
+    theme: paper #cerulean #cosmo #journal #readable
+    toc: true
+    smooth_scroll: true
+    toc_depth: 3
+    toc_float: true
+    number_sections: true
+    fig_caption: yes
+    code_folding: hide
+    # bibliography: ["geothermal.bib", "r.bib"]
+    # csl: apa-5th-edition.csl
+    # link-citations: yes
+---  
+
+<style type="text/css">  
+/* Note: CSS uses C-style commenting. */
+h1.title{font-size:22px; text-align:center;}
+h4.author{font-size:16px; text-align:center;}
+h4.date{font-size:16px; text-align:center;}
+body{ /* Normal  */ font-size: 13px}
+td {  /* Table   */ font-size: 12px}
+h1 { /* Header 1 */ font-size: 16px}
+h2 { /* Header 2 */ font-size: 14px}
+h3 { /* Header 3 */ font-size: 12px}
+.math{ font-size: 10pt;}
+.hi{ /* hanging indents */ 
+    padding-left:22px; 
+    text-indent:-22px;
+}
+blockquote {  
+    padding: 10px 20px;
+    margin: 0 0 20px;
+    font-size: 12px;
+    border-left: 5px solid #eee;
+}
+code.r{ /* code */ 
+       font-size: 12px;
+}
+pre{/*preformatted text*/ 
+    font-size: 12px;
+}
+p.caption {/* figure captions */ 
+    font-size: 1.0em;
+    font-style: italic; 
+} 
+</style>
+
+<style>
+.vscroll-plot {
+    width: 800px;
+    height: 400px;
+    overflow-y: scroll;
+    overflow-x: hidden;
+}
+</style>
+
+```{r setup, include=FALSE}
+library(ggplot2)
+library(bookdown)
+library(ggplot2)
+library(car)
+library(effects)
+library(ggeffects)
+library(MASS)
+library(GGally)
+knitr::opts_chunk$set(echo = TRUE)
+infile <- "..\\data\\"
+```
+
+Let’s consider some data on the prevalence of avian pox among birds on Hawaiʻi
+island. In the attached paper the researchers investigated the prevalence of the 
+disease at twelve sites in windward rainforests, over a range of altitudes, in four 
+bird species – three endemic (ʻApapane, Hawaiʻi ʻAmakihi, ʻIʻiwi) and one 
+introduced (Japanese White-eye). Individual birds were assayed for active pox 
+infection (lesions), as well as chronic malaria infection (birds that survive malaria 
+become chronically infected). ʻIʻiwi is highly susceptible to malaria, while 
+ʻApapane and Hawaiʻi ʻAmakihi are moderately susceptible, and the White-eye is 
+resistant.
+
+# Display malaria in birds
+The twelve sites have been coded as low/medium/high elevation. First, 
+summarize the number of observations of each bird species at each elevation. This 
+will be important context for what we can and cannot ask about avian pox 
+patterns. Also, what is the prevalence of chronic malaria in the bird species at the 
+difference elevations? Note that some birds do not have a known malaria status 
+(code = 2). Only use birds with code = 0 or 1 to quantify the prevalence of malaria.
+      
+```{r}
+birds  <- read.csv(paste(infile, "Pox_Data_revised.csv", 
+                         sep = ""))
+birds[birds$Malaria == 2, "Malaria"] <- NA
+
+birds$x <- rep(1, nrow(birds))
+elev  <- aggregate(birds$x, 
+                   by = list(Species = birds$Species, Elev = birds$Elev),  
+                   FUN = sum)
+colnames(elev) <- c("Species", "Elev", "pop")
+
+known <- subset(birds, !Malaria == 2)
+sick_birds <- aggregate(known$Malaria, 
+                   by = list(Species = known$Species, Elev = known$Elev),  
+                   FUN = sum)
+all_birds  <- aggregate(known$x, 
+                   by = list(Species = known$Species, Elev = known$Elev),  
+                   FUN = sum)
+
+all_birds$mal_per <- round((sick_birds$x / all_birds$x) * 100, 0)
+all_birds$mal_per <- paste(all_birds$mal_per, "%", sep = "")
+
+mydata <- merge(elev, all_birds, by=c("Species", "Elev"), all = TRUE)
+mydata[is.na(mydata$mal_per), ]$mal_per <- "NA"
+```
+
+**Answer**
+It appears that the birds observed at higher elevations have a lower incident of chronic malaria. Bird species in mid elevation seem to have the highest incident of chronic malaria, although only the HAAM species has a reliable sample size. I find the malaria infection percentage using birds that had identifiable symptoms ie. `subset(birds, !Malaria == 2)`, but the population count depicts the total population of birds observed.
+
+```{r, fig.cap = "Population of four bird species, Apapane (APAP), Hawaii Amakihi (HAAM), Iiwi (IIWI) and Japanese White-eye (JAWE) at three different elevations: low, mid, and high. The respective malaria infection rates are displayed above each bird's population bar."}
+ggplot(mydata, aes(fill = Species, y = pop, x = Elev)) + 
+  geom_bar(position = "dodge", stat = "identity") + 
+  geom_text(aes(y = pop, label = mal_per), 
+            vjust = -0.4, 
+            position = position_dodge(width = 1)) +
+  labs(title = "Prevailance of malaria in bird species at difference elevations") + 
+  xlab("Elevation Type") +
+  ylab("Population Count") +
+  theme_bw()
+```
+
+# Pox birds without considering malaria
+Create a model where the presence/absence of pox can differ between species 
+and between elevations. Allow the effect of elevation to differ between species. 
+Make an effects plot of the fitted model and perform likelihood ratio tests on the 
+predictors. Provide a verbal explanation of what the model tells us. 
+Look at summary() of the model, and note that there is an NA for one of the 
+coefficients. Why do you think this is?
+
+## Answer {.tabset}
+Using a general linear model with a binomial family, and a type two Anova() likelihood test I found that there is a significant relationship between birds with pox and  bird species. I also found that there was a significant relationship between the effect of bird species on pox infection and elevation, as well as a significant direct relationship between pox infection and elevation. Because there are no Iiwi found at low elevations, the effects an NA is received for the Iwwi low coefficient. I ran a model (mod2) without the direct elevation interaction on pox infection and only Elev:Species, so that nice effects plots could be made. Lastly I combined active pox occurrences with old pox occurrences because I don't see why not, pox are pox. 
+     
+### Summary Statistics
+```{r, out.width = "50%"}
+birds  <- read.csv(paste(infile, "Pox_Data_revised.csv", 
+                         sep = ""))
+
+# Combining Active pox and Old Pox
+birds$pox <- birds$Activepox + birds$Oldpox
+birds[birds$pox == 2, "pox"] <- 1
+
+# model to observe the Anova results
+mod  = glm(pox ~ Species + Elev + Elev:Species, data = birds, family = binomial)
+# model to plot the effects 
+mod2 = glm(pox ~ Species + Elev:Species, data = birds, family = binomial)
+
+summary(mod)
+Anova(mod, type = 2)
+```
+
+### Effects Figures
+```{r, out.width = "75%"}
+plot(ggeffect(mod2, terms ="Elev"))
+plot(ggeffect(mod2, terms ="Species"))
+```
+
+# Pox birds removing Malaria birds
+Create a subset of the data that only includes birds with known malaria status (0 
+or 1). Also, you’ll want to exclude ʻIʻiwi from this model (look at your answer to #1 
+to see why). Create a model where pox prevalence varies by species, elevation, 
+and malaria status, and where the effect of elevation and the effect of malaria status 
+can differ between species. Make effects plots and perform likelihood ratio tests on 
+the predictors. Provide your interpretation of what the results mean. 
+
+```{r, out.width = "50%"}
+birds  <- read.csv(paste(infile, "Pox_Data_revised.csv", 
+                         sep = ""))
+
+birds$pox <- birds$Activepox + birds$Oldpox
+birds[birds$pox == 2, "pox"] <- 1
+
+birds[birds$Malaria == 2, "Malaria"] <- NA
+birds <- subset(birds, !is.na(Malaria))
+birds <- subset(birds, !Species == "IIWI")
+
+mod = glm(pox ~ Species + Elev + Elev:Species + Malaria + Malaria:Species, 
+          data   = birds, 
+          family = "binomial")
+
+disp <- sum(residuals(mod, type = "pearson")^2)/(nrow(birds) - length(coef(mod)))
+```
+
+## Answer {.tabset}
+
+Using a general linear model with `family = binomial` on a subset of the data without Iiwi or unknown malaria incidents, I found that there is a significant effect of Malaria, elevation, and species on the pox infection. I also found that there is a significant effect of elevation and malaria on the bird species effect on pox. Everything was significant. Also, I was confused by the wording "the effect of elevation and the effect of malaria status can differ between species" in the question. Is the model meant to be `pox ~ Species + Elev:Species + Malaria:Species` or `pox ~ Species + Elev + Elev:Species + Malaria + Malaria:Species` which is the same as `pox ~ Species * Elev * Malaria`. I went with the later. The dispersion parameter is `r round(disp, 2)` so I did not account for over dispersion. Lastly, I found that there is a positive near linear relationship between pox infection and malaria infection. 
+
+### Summary Statistics 
+```{r}
+summary(mod)
+Anova(mod)
+```
+
+### Effects Figures
+
+```{r, out.width = "75%"}
+plot(ggpredict(mod, terms ="Elev"))
+plot(ggpredict(mod, terms ="Species"))
+plot(ggpredict(mod, terms ="Malaria"))
+```
+
+# Do not pay attention to this
+
+## Answer {.tabset}
+
+I began doing question 2 and 3 in a similar way to the boar-TB example in lecture notes 7. I created a data frame with total population, and infected population so that I could do a glm() with `family = binomial`, and 'weights = population' where 'population' is the total bird observation per species/elevation. I decided the way I did it above was probably closer to the correct answer although the answers end up being very similar. I do the same thing as above where one test is run with Iiwi and one test is run without Iiwi or unknown malaria data. 
+
+### Dataframe
+```{r, out.width = "50%"}
+birds  <- read.csv(paste(infile, "Pox_Data_revised.csv", 
+                         sep = ""))
+
+birds$pox <- birds$Activepox + birds$Oldpox
+birds[birds$pox == 2, "pox"] <- 1
+
+birds$x <- rep(1, nrow(birds))
+all_birds <- aggregate(birds$x, 
+                       by = list(Species = birds$Species, Elev = birds$Elev),  
+                       FUN = sum)
+
+pox_birds <- aggregate(birds$pox, 
+                       by = list(Species = birds$Species, Elev = birds$Elev),  
+                       FUN = sum)
+
+all_birds$pox <- pox_birds$x
+all_birds$per_pox <- pox_birds$x/all_birds$x
+colnames(all_birds) <- c("Species", "Elev", "pop", "pox", "per_pox")
+
+mod = glm(per_pox ~ Species + Elev:Species, 
+          data    = all_birds, 
+          family  = binomial, 
+          weights = pop)
+
+head(all_birds)
+```
+
+### Summary Statistics
+```{r}
+summary(mod)
+Anova(mod, type = 2, test = "F")
+```
+
+### Effects Fiures
+```{r}
+plot(ggeffect(mod, terms ="Elev"))
+plot(ggeffect(mod, terms ="Species"))
+```
+
+
+## Answer {.tabset}
+
+### Dataframe
+```{r, out.width = "75%"}
+birds  <- read.csv(paste(infile, "Pox_Data_revised.csv", 
+                         sep = ""))
+
+birds[birds$Malaria == 2, "Malaria"] <- NA
+birds <- subset(birds, !is.na(Malaria))
+birds <- subset(birds, !Species == "IIWI")
+
+birds$pox <- birds$Activepox + birds$Oldpox
+birds[birds$pox == 2, "pox"] <- 1
+
+birds$x <- rep(1, nrow(birds))
+all_birds <- aggregate(birds$x, 
+                       by = list(Species = birds$Species, Elev = birds$Elev),  
+                       FUN = sum)
+
+pox_birds <- aggregate(birds$pox, 
+                       by = list(Species = birds$Species, Elev = birds$Elev),  
+                       FUN = sum)
+
+mal_birds <- aggregate(birds$Malaria, 
+                       by = list(Species = birds$Species, Elev = birds$Elev),  
+                       FUN = sum)
+
+all_birds$mal <- mal_birds$x
+all_birds$pox <- pox_birds$x
+all_birds$per_mal <- mal_birds$x/all_birds$x
+all_birds$per_pox <- pox_birds$x/all_birds$x
+colnames(all_birds) <- c("Species", "Elev", "pop", "malaria","pox", "per_mal", 
+                         "per_pox")
+
+mod = glm(per_pox ~ Species + Elev + Elev:Species + per_mal + per_mal:Species, 
+          data = all_birds, 
+          family = "binomial", 
+          weights = pop)
+head(all_birds)
+```
+
+### Summary Statistics
+```{r}
+summary(mod)
+Anova(mod, type = 2)
+```
+
+### Effects Figures
+```{r}
+plot(ggpredict(mod, terms ="Elev"))
+plot(ggpredict(mod, terms ="Species"))
+plot(ggpredict(mod, terms ="per_mal"))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

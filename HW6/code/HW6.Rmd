@@ -1,0 +1,294 @@
+---
+title: "Homework 6: Zero Inflation and Negative Binomials"
+author: "Jamie Ash"
+date: "due: 2021-10-06"
+root.dir: "C:\\Users\\james\\Desktop\\OCN638\\HW4\\code"
+output: 
+  #html_document: 
+  bookdown::html_document2:  
+    self-contained: yes
+    theme: paper #cerulean #cosmo #journal #readable
+    toc: true
+    smooth_scroll: true
+    toc_depth: 3
+    toc_float: true
+    number_sections: true
+    fig_caption: yes
+    code_folding: hide
+    # bibliography: ["geothermal.bib", "r.bib"]
+    # csl: apa-5th-edition.csl
+    # link-citations: yes
+---  
+
+<style type="text/css">  
+/* Note: CSS uses C-style commenting. */
+h1.title{font-size:22px; text-align:center;}
+h4.author{font-size:16px; text-align:center;}
+h4.date{font-size:16px; text-align:center;}
+body{ /* Normal  */ font-size: 13px}
+td {  /* Table   */ font-size: 12px}
+h1 { /* Header 1 */ font-size: 16px}
+h2 { /* Header 2 */ font-size: 14px}
+h3 { /* Header 3 */ font-size: 12px}
+.math{ font-size: 10pt;}
+.hi{ /* hanging indents */ 
+    padding-left:22px; 
+    text-indent:-22px;
+}
+blockquote {  
+    padding: 10px 20px;
+    margin: 0 0 20px;
+    font-size: 12px;
+    border-left: 5px solid #eee;
+}
+code.r{ /* code */ 
+       font-size: 12px;
+}
+pre{/*preformatted text*/ 
+    font-size: 12px;
+}
+p.caption {/* figure captions */ 
+    font-size: 1.0em;
+    font-style: italic; 
+} 
+</style>
+
+<style>
+.vscroll-plot {
+    width: 800px;
+    height: 400px;
+    overflow-y: scroll;
+    overflow-x: hidden;
+}
+</style>
+
+```{r setup, include=FALSE}
+library(ggplot2)
+library(bookdown)
+library(ggplot2)
+library(car)
+library(effects)
+library(ggeffects)
+library(MASS)
+library(GGally)
+library(glmmTMB)
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+infile <- "..\\data\\"
+bugs <- read.csv(paste(infile, "collembola_revised.csv", sep = ""))
+```
+
+# Negative Binomial
+First use a negative binomial model to ask whether total Collembola count (column total.count) changes with temperature treatment (column temp.treatment), and/or with predator treatment (column predators), and whether the effect of predators changes with temperature. Although we used the function glm.nb() in the MASS package previously, use the function glmmTMB() here, because later we will compare this model to others fit with this function. Plot fitted effects and perform likelihood ratio tests on the relevant terms. To perform marginal tests you will want to compare pairs of models using the function anova(). Previously we used the function Anova() (the capitalized and uncapitalized functions are different) to automate this process, but this function returns a less accurate test for glmmTMB (a Wald test). So, for each term you want to test, compare a model with this 
+term to a model without this term. How do you interpret the results at this stage?
+
+## Answer {.tabset}
+
+Using the negative binomial model with temperature and predators as predictors (with interaction), I find very a positive relationship between temperature and prey count, as well as no apparent relationship between presence or absence of predators regardless of predator type. This is backed up up by the significance level for the predictors: temperature is significant, while the effect of predators on prey count are not significant (interaction included).  
+
+When comparing models using anova:   
+
+1) There is no difference between the full model with predator-temperature interaction and the restricted model without predator-temperature interaction (chi-spqr = 0.53). Predators likely do not have an effect on the relationship between prey count and temperature.  
+
+2) When comparing `total.prey ~ temp` and `total.prey ~ temp + preds` a chi-sqr coefficient of $0.34$ is received, meaning there predators likely do not have a strong effect on prey count.  
+
+3) When comparing `total.prey ~ pred` and `total.prey ~ temp + preds` a chi-sqr coefficient of $1.075e-06$ is received, meaning temperature likely has a strong effect on prey count.   
+
+Lastly, the dispersion coefficient is very large, $1.79e+03$, for all tests using a negative binomial model. There is likely zero inflation occurring.  
+
+### ANOVA and GLM results
+```{r}
+# No errors with zeros removed
+bugs$preds <- bugs$Pred1 + bugs$Pred2*2
+bugs$preds <- as.factor(bugs$preds)
+#bugs <- subset(bugs, !total.prey == 0)
+
+mod_in    = glmmTMB(total.prey ~ temp + preds + preds:temp, 
+                  data = bugs, family = "nbinom1")
+mod_no    = glmmTMB(total.prey ~ temp + preds, 
+                  data = bugs, family = "nbinom1")
+mod_temp  = glmmTMB(total.prey ~ temp, 
+                  data = bugs, family = "nbinom1")
+mod_pred  = glmmTMB(total.prey ~ preds, 
+                  data = bugs, family = "nbinom1")
+summary(mod_in)
+anova(mod_no, mod_temp) # compare predors + temperature to temperature
+anova(mod_no, mod_pred) # compare predors + temperature to predetors
+anova(mod_no, mod_in)   # compare predetor-temperature interaction to no interac
+```
+
+### Model effect plotted 
+```{r, out.width = "75%"}
+plot(ggeffect(mod_in)$temp,  add = TRUE)
+plot(ggeffect(mod_no)$preds, add = TRUE)
+```
+
+
+# Zero Inflated Negative Binomial
+A large proportion of the data are zeros, and it may be the case that processes controlling abundance are different from processes controlling ‘extra’ zeros if, in fact, there are extra zeros. Use glmmTMB to fit two more models: a zero inflated poisson model and a zero inflated negative binomial model. In the count model include all the terms from the previous model. In the model for the extra zeros don’t include any predictors for now. Use AIC to compare the three models (negative binomial, zero inflated poisson, zero inflated negative binomial). Which model best fits the data? Using the zero inflated negative binomial model, perform new marginal likelihood ratio tests (using anova()) on the terms in the count model. How have the results changed from the simple negative binomial model?
+
+## Answer {.tabset}
+
+The zero inflated negative binomial has the lowest AIC score (665.6), so I suppose it is the best model. When I rerun the likelihood tests using the zero inflated binomial model I find that the effect of both temperature and predators has a significant effect on prey count, whereas with the regular negative binomial I found predators to have little effect on prey count (interaction as well p = 0.026).
+
+The first tab is the results for the anova on the zero inflated Poisson model, the negative binomial model and the zero inflated negative binomial model. The second tab is the results for the marginal likelihood ratio tests using the zero inflated negative binomial model. Last is the effects plot for the zero inflated negative binomial model
+  
+### ANOVA and GLM Resluts
+```{r}
+# negative binomial model
+mod_nbnom  = glmmTMB(total.prey ~ temp + preds + preds:temp, 
+                  data = bugs, 
+                  family = "nbinom1")
+# Count model. Including all predictors in zero inflation model
+mod_pois0  = glmmTMB(total.prey ~ temp + preds + preds:temp, 
+              data = bugs,
+              ziformula = ~ 1, 
+              family = "poisson")
+# Extra zeros model. Including all predictors.
+mod_binom0 = glmmTMB(total.prey ~ temp + preds + preds:temp,
+              data = bugs,
+              ziformula = ~ 1, 
+              family = "nbinom1")
+
+anova(mod_pois0, mod_binom0, mod_nbnom)
+```
+
+### Zero Inflated Negative Binomial
+```{r}
+#bugs <- subset(bugs, !bugs$total.prey == 0)
+
+mod_in   = glmmTMB(total.prey ~ temp + preds + preds:temp,
+                     data = bugs,
+                     ziformula = ~ 1, 
+                    family = "nbinom1")
+mod_no   = glmmTMB(total.prey ~ temp + preds,
+                     data = bugs,
+                     ziformula = ~ 1, 
+                     family = "nbinom1")
+mod_temp = glmmTMB(total.prey ~ temp,
+                     data = bugs,
+                     ziformula = ~ 1, 
+                     family = "nbinom1")
+mod_pred = glmmTMB(total.prey ~ preds,
+                     data = bugs,
+                     ziformula = ~ 1, 
+                     family = "nbinom1")
+
+anova(mod_no, mod_in)
+anova(mod_no, mod_temp) # compare predors + temperature to temperature
+anova(mod_no, mod_pred)
+
+```
+
+### Zero Inflated Effects Plots
+```{r, out.width = "75%"}
+plot(ggeffect(mod_in)$preds, add= TRUE)
+plot(ggeffect(mod_in)$temp, add= TRUE)
+```
+
+# Lumped Predators Zero-Inf-Neg-Binomial
+Based on the effects plots it seems like the three treatments with predators (HA, HM, HA+HM) may not be very different in their effect on the prey. Let’s test the effect of predators, but treating all treatments with predators as the same. I have re-coded the predator treatment in the column predators.lumped. Fit a zero inflated negative binomial model using predators.lumped instead of predators, and plot fitted effects and perform  likelihood ratio tests as before. How do these results compare to what you saw previously? Why do you think the results have changed? How do you interpret these patterns?
+
+## Answer {.tabset}
+
+Compared to the zero inflated negative binomial model, the no-interaction model, `total.prey ~ temp + predators.lumped`, vs the interaction model `total.prey ~ temp + predators.lumped + predators.lumped:temp` is still significant but the effects of temperature on prey count is no longer significant (p = 0.054). Well its almost significant anyhow. All predictors are now significant or almost significant. 
+
+### Lumped Zero Inflated Negative Binomial
+```{r}
+# convert form character to factor for model
+bugs$predators.lumped <- as.factor(bugs$predators.lumped)
+
+mod_in   = glmmTMB(total.prey ~ temp + predators.lumped + predators.lumped:temp,
+                     data = bugs,
+                     ziformula = ~ 1, 
+                    family = "nbinom1")
+mod_no   = glmmTMB(total.prey ~ temp + predators.lumped,
+                     data = bugs,
+                     ziformula = ~ 1, 
+                     family = "nbinom1")
+mod_temp = glmmTMB(total.prey ~ temp,
+                     data = bugs,
+                     ziformula = ~ 1, 
+                     family = "nbinom1")
+mod_pred = glmmTMB(total.prey ~ predators.lumped,
+                     data = bugs,
+                     ziformula = ~ 1, 
+                     family = "nbinom1")
+#summary(mod_in)
+anova(mod_no, mod_temp) # compare predors + temperature to temperature
+anova(mod_no, mod_pred) # compare predors + temperature to predetors
+anova(mod_no, mod_in)   # compare predetor-temperature interaction to no interac
+```
+### Lumped Zero Inflated Effects Plots
+
+```{r, out.width = "75%"}
+plot(ggeffect(mod_in)$predators.lumped, add = TRUE)
+plot(ggeffect(mod_in)$temp, add = TRUE)
+```
+
+# Model the zeros
+Finally, we have not considered that the ‘extra’ zeros could themselves vary by treatment. Take the zero inflated negative binomial model from #3 and add in terms for temperature, predators.lumped, and the interaction between these treatments. Use likelihood ratio tests to test these terms. The various packages for plotting fitted effects do not (to my knowledge) have a convenient way to plot zero-inflated effects (although this could be done ‘manually’ by extracting model predictions). Instead, look at the model coefficients returned by summary() to interpret whats going on with the extra zeros. In this case the output is most intepretable if you use a model that removes the non-significant terms. What is the pattern in the extra zeros according to this model? How does this pattern differ from the patterns in the count model?
+
+## Answer {.tabset}
+
+I chose the zero inflated negative binomial model with the ‘extra’ zeros only varying with temperature to interoperate the summary() results, because I found predators.lumped and predators.lumped:temp to have a very non-significant relationship with the extra zero's.  
+
+The anova() results for models incorporating 'extra zero' variation...  
+
+1) The `predators.lumped:temp` interaction term is very insignificant (chi = 0.93) 
+
+2) Temperature is very significant (chi = 3.0e-05)
+
+3) Predetors.lumped is very insignificant (chi = 0.85)  
+
+Using the `ziformula = ~temp` model I found that the extra zero's scale positively with temperature. That is as temperature rises, the chance of receiving an 'extra zero' increases. The other models assumed extra zero's were evenly distributed across treatment types (I think).
+
+### ANOVA results
+
+```{r}
+# I think this is equivilent to doing a mixed model with an Identity term for 
+# each ziformula predictor
+mod_in   = glmmTMB(total.prey ~ temp + predators.lumped + predators.lumped:temp,
+                 ziformula = ~ temp + predators.lumped + predators.lumped:temp, 
+                 data = bugs,
+                 family = "nbinom1")
+mod_no  = glmmTMB(total.prey ~ temp + predators.lumped + predators.lumped:temp,
+                 ziformula = ~ temp + predators.lumped, 
+                 data = bugs,
+                 family = "nbinom1")
+mod_temp = glmmTMB(total.prey ~ temp + predators.lumped + predators.lumped:temp,
+                 ziformula = ~ temp,
+                 data = bugs,
+                 family = "nbinom1")
+mod_pred = glmmTMB(total.prey ~ temp + predators.lumped + predators.lumped:temp,
+                 ziformula = ~ predators.lumped,
+                 data = bugs,
+                 family = "nbinom1")
+
+anova(mod_in, mod_no)
+anova(mod_no, mod_pred)
+anova(mod_no, mod_temp)
+
+# I think this is the right model to summary for zero inflation effect
+summary(mod_temp)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
